@@ -14,6 +14,7 @@ const { refreshDashboard } = require("./watcher");
 const {
   PROPOSAL_REQUESTS_CHANNEL_ID,
   RISK_LABS_ROLE_ID,
+  ADMIN_USER_IDS,
   QUALIFY_MIN_SETTLED,
   QUALIFY_MIN_ACCURACY,
 } = require("./config");
@@ -22,6 +23,7 @@ const REQUEST_MODAL_ID = "proposal_request_modal";
 
 function hasAccess(member) {
   return (
+    ADMIN_USER_IDS.includes(member.id) ||
     member.permissions.has(PermissionsBitField.Flags.Administrator) ||
     member.roles.cache.has(RISK_LABS_ROLE_ID)
   );

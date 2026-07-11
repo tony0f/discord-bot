@@ -17,8 +17,12 @@ module.exports = {
   PROPOSAL_REQUESTS_CHANNEL_ID:
     process.env.PROPOSAL_REQUESTS_CHANNEL_ID || "1423039184184279282",
 
-  // Admin access: Administrator permission or this role
+  // Admin access: Administrator permission, this role, or an explicit user ID
   RISK_LABS_ROLE_ID: process.env.RISK_LABS_ROLE_ID || "1123485195694256158",
+  ADMIN_USER_IDS: (process.env.ADMIN_USER_IDS || "907390293316337724")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean),
 
   // Runtime settings stored in the DB `settings` table. These are the
   // defaults applied when a key has not been configured via /pr-admin.

@@ -2,7 +2,7 @@
 // Registers the bot's slash commands. Run once after any command change:
 //   node deploy_commands.js
 require("dotenv").config();
-const { SlashCommandBuilder, ChannelType } = require("discord.js");
+const { SlashCommandBuilder, ChannelType, PermissionFlagsBits } = require("discord.js");
 const { REST } = require("@discordjs/rest");
 const { Routes } = require("discord-api-types/v9");
 
@@ -34,7 +34,9 @@ const leaderboardCommand = new SlashCommandBuilder()
 const adminCommand = new SlashCommandBuilder()
   .setName("pr-admin")
   .setDescription("Admin settings for the proposal-requests system.")
-  .setDefaultMemberPermissions(null)
+  // Hidden from members without Administrator. Server admins can grant it to
+  // specific roles/users via Server Settings → Integrations → command permissions.
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .addSubcommand((sub) =>
     sub
       .setName("view_settings")
