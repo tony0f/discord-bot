@@ -38,6 +38,10 @@ const leaderboardCommand = new SlashCommandBuilder()
   .setName("leaderboard")
   .setDescription("Proposal-requests leaderboard (last 6 months).");
 
+const requestsListCommand = new SlashCommandBuilder()
+  .setName("requests")
+  .setDescription("List all active proposal requests (pending and proposed).");
+
 const adminCommand = new SlashCommandBuilder()
   .setName("pr-admin")
   .setDescription("Admin settings for the proposal-requests system.")
@@ -146,6 +150,7 @@ const commands = [
   requestCommand.toJSON(),
   myStatsCommand.toJSON(),
   leaderboardCommand.toJSON(),
+  requestsListCommand.toJSON(),
   adminCommand.toJSON(),
 ];
 

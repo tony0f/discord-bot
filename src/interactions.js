@@ -11,7 +11,7 @@ const {
 const db = require("./db");
 const pm = require("./polymarket");
 const pr = require("./proposalRequests");
-const { buildRequestEmbed } = require("./embeds");
+const { buildRequestEmbed, buildDashboardEmbed } = require("./embeds");
 const { refreshDashboard } = require("./watcher");
 const {
   PROPOSAL_REQUESTS_CHANNEL_ID,
@@ -375,6 +375,16 @@ async function handleLeaderboard(interaction) {
   return interaction.editReply({ embeds: [embed] });
 }
 
+async function handleRequestsList(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const settings = await db.getSettings();
+  const requests = await pr.listActiveRequests();
+  const embed = buildDashboardEmbed(requests, {
+    creditWindowHours: parseInt(settings.credit_window_hours, 10),
+  });
+  return interaction.editReply({ embeds: [embed] });
+}
+
 async function handleAdmin(interaction) {
   if (!hasAccess(interaction.member)) {
     return interaction.reply({
@@ -508,6 +518,10 @@ async function handleInteraction(interaction) {
       if (commandName === "leaderboard") {
         if (!db.isEnabled()) return dbDisabledReply(interaction);
         return handleLeaderboard(interaction);
+      }
+      if (commandName === "requests") {
+        if (!db.isEnabled()) return dbDisabledReply(interaction);
+        return handleRequestsList(interaction);
       }
       if (commandName === "pr-admin") {
         if (!db.isEnabled()) return dbDisabledReply(interaction);
