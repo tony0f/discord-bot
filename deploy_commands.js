@@ -42,6 +42,23 @@ const requestsListCommand = new SlashCommandBuilder()
   .setName("requests")
   .setDescription("List all active proposal requests (pending and proposed).");
 
+const reportCommand = new SlashCommandBuilder()
+  .setName("report")
+  .setDescription("Flag a proposal request you believe is bad-faith or incorrect.")
+  .addIntegerOption((opt) =>
+    opt
+      .setName("id")
+      .setDescription("Request ID (shown in the card footer).")
+      .setRequired(true),
+  )
+  .addStringOption((opt) =>
+    opt
+      .setName("reason")
+      .setDescription("Why this request should not be trusted.")
+      .setMaxLength(500)
+      .setRequired(true),
+  );
+
 const adminCommand = new SlashCommandBuilder()
   .setName("pr-admin")
   .setDescription("Admin settings for the proposal-requests system.")
@@ -136,6 +153,17 @@ const adminCommand = new SlashCommandBuilder()
   )
   .addSubcommand((sub) =>
     sub
+      .setName("clear_flag")
+      .setDescription("Remove a community warning from a request.")
+      .addIntegerOption((opt) =>
+        opt
+          .setName("id")
+          .setDescription("Request ID.")
+          .setRequired(true),
+      ),
+  )
+  .addSubcommand((sub) =>
+    sub
       .setName("user_stats")
       .setDescription("View another user's proposal-request stats.")
       .addUserOption((opt) =>
@@ -151,6 +179,7 @@ const commands = [
   myStatsCommand.toJSON(),
   leaderboardCommand.toJSON(),
   requestsListCommand.toJSON(),
+  reportCommand.toJSON(),
   adminCommand.toJSON(),
 ];
 

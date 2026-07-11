@@ -262,6 +262,43 @@ async function invalidateRequest(id, reason) {
   return updateRequestStatus(id, { status: "invalidated", invalidated_reason: reason });
 }
 
+// Community warning: any user can flag an active request they believe is
+// bad-faith. One warning per request; admins review (invalidate or clear).
+async function reportRequest(id, reporter, reason) {
+  const request = await getRequestById(id);
+  if (!request) {
+    return { ok: false, error: `Request #${id} not found.` };
+  }
+  if (!ACTIVE_STATUSES.includes(request.status)) {
+    return { ok: false, error: `Request #${id} is not active (status: \`${request.status}\`) — only active requests can be reported.` };
+  }
+  if (request.discord_user_id === reporter.id) {
+    return { ok: false, error: "You cannot report your own request." };
+  }
+  if (request.flag_reason) {
+    return {
+      ok: false,
+      error: `Request #${id} already has a community warning (by **${request.flagged_by_username}**). Admins will review it.`,
+    };
+  }
+  const updated = await updateRequestStatus(id, {
+    flag_reason: reason,
+    flagged_by: reporter.id,
+    flagged_by_username: reporter.username,
+    flagged_at: new Date(),
+  });
+  return { ok: true, request: updated };
+}
+
+async function clearFlag(id) {
+  return updateRequestStatus(id, {
+    flag_reason: null,
+    flagged_by: null,
+    flagged_by_username: null,
+    flagged_at: null,
+  });
+}
+
 module.exports = {
   createRequest,
   setRequestMessage,
@@ -271,4 +308,6 @@ module.exports = {
   getRequestById,
   updateRequestStatus,
   invalidateRequest,
+  reportRequest,
+  clearFlag,
 };

@@ -80,6 +80,15 @@ async function createSchema() {
     );
   `);
 
+  // Community-warning (report) fields — added after initial release
+  await pool.query(`
+    ALTER TABLE proposal_requests
+      ADD COLUMN IF NOT EXISTS flag_reason TEXT,
+      ADD COLUMN IF NOT EXISTS flagged_by TEXT,
+      ADD COLUMN IF NOT EXISTS flagged_by_username TEXT,
+      ADD COLUMN IF NOT EXISTS flagged_at TIMESTAMPTZ;
+  `);
+
   // Only one active (pending/proposed) request per market — first come, first served
   await pool.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS uniq_active_market

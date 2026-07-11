@@ -31,6 +31,8 @@ Since almost no OOV2 markets remain, users can no longer build the 5-proposals/9
    * **`expired`** — nobody proposed within the window → no credit. This is the main protection against spam and too-early (P4) farming.
 5. Stats accumulate per user over a rolling 6 months. Reaching **5+ settled requests with ≥95% accuracy** flags the user as whitelist-qualified (and closes new requests for them).
 
+**Community moderation:** anyone can `/report` an active request they believe is bad-faith. The request card turns red with a **🚩 COMMUNITY WARNING** (reporter + reason), the live board marks it, and the report is announced publicly under the card. Admins then either `/pr-admin invalidate` it (it never counts) or `/pr-admin clear_flag` if the report doesn't hold. **Early-resolution claims** (market end time still in the future) are allowed — per UMA rules a market is proposable as soon as its event occurs — but the card carries a ⚠️ note telling proposers to verify the evidence with extra care.
+
 ### Commands
 
 | Command | Who | What |
@@ -38,7 +40,8 @@ Since almost no OOV2 markets remain, users can no longer build the 5-proposals/9
 | `/request link:` | everyone | Open the dynamic request form for a Polymarket link |
 | `/mystats` | everyone | Your record and whitelist progress (ephemeral) |
 | `/leaderboard` | everyone | Top requesters, last 6 months |
-| `/requests` | everyone | List all active requests (pending/proposed), ephemeral |
+| `/requests` | everyone | List all active requests (pending/proposed), public |
+| `/report id: reason:` | everyone | Add a community warning to a bad-faith request |
 | `/pr-admin view_settings` | admins | Show runtime settings |
 | `/pr-admin set_credit_window hours:` | admins | Hours before an unproposed request expires |
 | `/pr-admin set_max_active value:` | admins | Max simultaneous active requests per user |
@@ -46,6 +49,7 @@ Since almost no OOV2 markets remain, users can no longer build the 5-proposals/9
 | `/pr-admin set_poll_interval minutes:` | admins | Watcher frequency |
 | `/pr-admin set_dashboard_channel channel:` | admins | Where the auto-updating live board lives |
 | `/pr-admin invalidate id: reason:` | admins | Kill a spam/bad-faith request |
+| `/pr-admin clear_flag id:` | admins | Remove a community warning |
 | `/pr-admin user_stats user:` | admins | Inspect any user's record |
 
 Admins = Administrator permission or the Risk Labs role.

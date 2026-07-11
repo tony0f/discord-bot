@@ -305,7 +305,7 @@ async function handleRequestModalSubmit(interaction) {
   for (const request of created) {
     lines.push(
       `✅ **#${request.id}** ${truncate(request.market_question, 100)} → **${request.requested_outcome}**` +
-        (request.early_claim ? " ⚠️ *(early claim)*" : ""),
+        (request.early_claim ? " ⚠️ *(early resolution — proposable once the event occurs)*" : ""),
     );
   }
   for (const f of failed) {
@@ -376,13 +376,47 @@ async function handleLeaderboard(interaction) {
 }
 
 async function handleRequestsList(interaction) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await interaction.deferReply(); // public: proposers browse this together
   const settings = await db.getSettings();
   const requests = await pr.listActiveRequests();
   const embed = buildDashboardEmbed(requests, {
     creditWindowHours: parseInt(settings.credit_window_hours, 10),
   });
   return interaction.editReply({ embeds: [embed] });
+}
+
+async function handleReport(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const id = interaction.options.getInteger("id");
+  const reason = interaction.options.getString("reason");
+
+  const result = await pr.reportRequest(id, interaction.user, reason);
+  if (!result.ok) {
+    return interaction.editReply({ content: `❌ ${result.error}` });
+  }
+  const request = result.request;
+
+  const { editRequestMessage } = require("./watcher");
+  await editRequestMessage(interaction.client, request).catch(() => {});
+  refreshDashboard(interaction.client).catch(() => {});
+
+  // Public accountability: announce the warning under the request card
+  try {
+    const channel = await interaction.client.channels.fetch(PROPOSAL_REQUESTS_CHANNEL_ID);
+    const payload = {
+      content: `🚩 <@${interaction.user.id}> flagged request **#${request.id}** (by <@${request.discord_user_id}>) with a community warning:\n> ${reason}\nAdmins will review it.`,
+    };
+    if (request.message_id) {
+      payload.reply = { messageReference: request.message_id, failIfNotExists: false };
+    }
+    await channel.send(payload);
+  } catch (err) {
+    console.warn(`[PR] Could not announce report for #${request.id}:`, err.message);
+  }
+
+  return interaction.editReply({
+    content: `✅ Community warning added to request **#${request.id}**. Admins will review it — thank you for keeping the system honest.`,
+  });
 }
 
 async function handleAdmin(interaction) {
@@ -480,6 +514,27 @@ async function handleAdmin(interaction) {
     });
   }
 
+  if (sub === "clear_flag") {
+    const id = interaction.options.getInteger("id");
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const request = await pr.getRequestById(id);
+    if (!request) {
+      return interaction.editReply({ content: `❌ Request #${id} not found.` });
+    }
+    if (!request.flag_reason) {
+      return interaction.editReply({ content: `Request #${id} has no community warning to clear.` });
+    }
+
+    const updated = await pr.clearFlag(id);
+    const { editRequestMessage } = require("./watcher");
+    await editRequestMessage(interaction.client, updated).catch(() => {});
+    refreshDashboard(interaction.client).catch(() => {});
+    return interaction.editReply({
+      content: `✅ Community warning cleared from request #${id}.`,
+    });
+  }
+
   if (sub === "user_stats") {
     const user = interaction.options.getUser("user");
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -522,6 +577,10 @@ async function handleInteraction(interaction) {
       if (commandName === "requests") {
         if (!db.isEnabled()) return dbDisabledReply(interaction);
         return handleRequestsList(interaction);
+      }
+      if (commandName === "report") {
+        if (!db.isEnabled()) return dbDisabledReply(interaction);
+        return handleReport(interaction);
       }
       if (commandName === "pr-admin") {
         if (!db.isEnabled()) return dbDisabledReply(interaction);
