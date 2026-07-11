@@ -1,12 +1,13 @@
 // deploy-commands.js
+// Registers the bot's slash commands. Run once after any command change:
+//   node deploy_commands.js
 require("dotenv").config();
-const { SlashCommandBuilder, PermissionsBitField } = require("discord.js");
-
+const { SlashCommandBuilder, ChannelType } = require("discord.js");
 const { REST } = require("@discordjs/rest");
 const { Routes } = require("discord-api-types/v9");
 
 const BOT_ID = process.env.BOT_ID; // Client ID
-const GUILD_ID = process.env.GUILD_ID; // Optional: Client ID for testing
+const GUILD_ID = process.env.GUILD_ID; // Optional: guild used for testing
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 
 if (!BOT_ID || !DISCORD_TOKEN) {
@@ -16,221 +17,143 @@ if (!BOT_ID || !DISCORD_TOKEN) {
   process.exit(1);
 }
 
-const configCommand = new SlashCommandBuilder()
-  .setName("config")
-  .setDescription("Configure bot settings for this server.")
-  .setDefaultMemberPermissions(null)
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("set_processing_interval")
-      .setDescription(
-        "Set how often tickets are processed (e.g., 30m, 1h, 2h30m).",
-      )
-      .addStringOption((option) =>
-        option
-          .setName("interval")
-          .setDescription(
-            "Processing interval (e.g., '30m', '1h', '90m'). Min 1 minute.",
-          )
-          .setRequired(true),
-      ),
-  )
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("set_post_processing_action")
-      .setDescription("Set the default action when a ticket is processed.")
-      .addStringOption((option) =>
-        option
-          .setName("action")
-          .setDescription('The action to perform: "none", "close" or "delete".')
-          .setRequired(true)
-          .addChoices(
-            { name: "Do nothing", value: "none" },
-            { name: "Close Ticket ($close)", value: "close" },
-            { name: "Delete Ticket ($delete)", value: "delete" },
-          ),
-      ),
-  )
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("toggle_auto_processing")
-      .setDescription("Enable or disable automatic ticket processing.")
-      .addBooleanOption((option) =>
-        option
-          .setName("enabled")
-          .setDescription("Set to true to enable, false to disable.")
-          .setRequired(true),
-      ),
-  )
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("toggle_paid_column")
-      .setDescription("Enable or disable automatic Paid? column with N.")
-      .addBooleanOption((option) =>
-        option
-          .setName("enabled")
-          .setDescription("Set to true to enable, false to disable.")
-          .setRequired(true),
-      ),
-  )
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("set_min_ticket_age")
-      .setDescription(
-        "Set min ticket age for auto-processing (e.g., 30m, 2h5m, 1d).",
-      )
-      .addStringOption((option) =>
-        option
-          .setName("age")
-          .setDescription("Minimum age (e.g., 30m,  2h5m, 125m, 1d).")
-          .setRequired(true),
-      ),
-  )
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("set_error_user")
-      .setDescription(
-        "Set the user to ping when an error occurs during processing.",
-      )
-      .addUserOption((option) =>
-        option
-          .setName("user")
-          .setDescription("The user to notify on errors.")
-          .setRequired(true),
-      ),
-  )
-  .addSubcommand((subcommand) =>
-  subcommand
-    .setName("toggle_moov2_filter")
-    .setDescription("Enable or disable the MOOV2 fallback ticket filter.")
-    .addBooleanOption((option) =>
-      option
-        .setName("enabled")
-        .setDescription("Set to true to ignore MOOV2 proposals, false to allow them.")
-        .setRequired(true),
-    ),
-  )
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("view_settings")
-      .setDescription("View the current bot configuration for this server."),
+const requestCommand = new SlashCommandBuilder()
+  .setName("request")
+  .setDescription(
+    "Request a whitelisted proposer to propose a Polymarket market (counts toward your record).",
   );
 
-const scanStatusCommand = new SlashCommandBuilder()
-  .setName("scan_status")
-  .setDescription("Shows when the next automatic ticket scan is scheduled.")
-  .setDefaultMemberPermissions(null);
+const myStatsCommand = new SlashCommandBuilder()
+  .setName("mystats")
+  .setDescription("View your proposal-request stats and whitelist progress.");
 
-const statsCommand = new SlashCommandBuilder()
-  .setName("stats")
-  .setDescription("Get statistics from the processed data.")
+const leaderboardCommand = new SlashCommandBuilder()
+  .setName("leaderboard")
+  .setDescription("Proposal-requests leaderboard (last 6 months).");
+
+const adminCommand = new SlashCommandBuilder()
+  .setName("pr-admin")
+  .setDescription("Admin settings for the proposal-requests system.")
   .setDefaultMemberPermissions(null)
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("closers")
-      .setDescription("Counts how many tickets each user has closed.")
-      .addIntegerOption((option) =>
-        option
-          .setName("start_order")
-          .setDescription("Optional: The order # to start counting from.")
-          .setRequired(false),
-      )
-      .addIntegerOption((option) =>
-        option
-          .setName("end_order")
-          .setDescription("Optional: The order # to end counting at.")
-          .setRequired(false),
+  .addSubcommand((sub) =>
+    sub
+      .setName("view_settings")
+      .setDescription("View the current proposal-requests settings."),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("set_credit_window")
+      .setDescription("Hours a request has to be proposed before it expires.")
+      .addIntegerOption((opt) =>
+        opt
+          .setName("hours")
+          .setDescription("Credit window in hours (e.g. 24).")
+          .setMinValue(1)
+          .setMaxValue(720)
+          .setRequired(true),
       ),
   )
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("primary")
-      .setDescription(
-        "Counts how many tickets each user has participated in as Primary.",
-      )
-      .addIntegerOption((option) =>
-        option
-          .setName("start_order")
-          .setDescription("Optional: The order # to start counting from.")
-          .setRequired(false),
-      )
-      .addIntegerOption((option) =>
-        option
-          .setName("end_order")
-          .setDescription("Optional: The order # to end counting at.")
-          .setRequired(false),
+  .addSubcommand((sub) =>
+    sub
+      .setName("set_max_active")
+      .setDescription("Max simultaneous active requests per user.")
+      .addIntegerOption((opt) =>
+        opt
+          .setName("value")
+          .setDescription("Maximum active requests (e.g. 5).")
+          .setMinValue(1)
+          .setMaxValue(100)
+          .setRequired(true),
       ),
   )
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("secondary")
-      .setDescription(
-        "Counts how many tickets each user has participated in as Secondary.",
-      )
-      .addIntegerOption((option) =>
-        option
-          .setName("start_order")
-          .setDescription("Optional: The order # to start counting from.")
-          .setRequired(false),
-      )
-      .addIntegerOption((option) =>
-        option
-          .setName("end_order")
-          .setDescription("Optional: The order # to end counting at.")
-          .setRequired(false),
+  .addSubcommand((sub) =>
+    sub
+      .setName("set_daily_limit")
+      .setDescription("Max requests per user per 24 hours.")
+      .addIntegerOption((opt) =>
+        opt
+          .setName("value")
+          .setDescription("Daily limit (e.g. 10).")
+          .setMinValue(1)
+          .setMaxValue(100)
+          .setRequired(true),
       ),
   )
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("tertiary")
-      .setDescription(
-        "Counts how many tickets each user has participated in as Tertiary.",
-      )
-      .addIntegerOption((option) =>
-        option
-          .setName("start_order")
-          .setDescription("Optional: The order # to start counting from.")
-          .setRequired(false),
-      )
-      .addIntegerOption((option) =>
-        option
-          .setName("end_order")
-          .setDescription("Optional: The order # to end counting at.")
-          .setRequired(false),
+  .addSubcommand((sub) =>
+    sub
+      .setName("set_poll_interval")
+      .setDescription("Minutes between market-state checks.")
+      .addIntegerOption((opt) =>
+        opt
+          .setName("minutes")
+          .setDescription("Poll interval in minutes (e.g. 5).")
+          .setMinValue(1)
+          .setMaxValue(120)
+          .setRequired(true),
       ),
   )
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("pending_tickets_queue")
-      .setDescription(
-        "Shows the current queue of fallback threads waiting to be created.",
+  .addSubcommand((sub) =>
+    sub
+      .setName("set_dashboard_channel")
+      .setDescription("Channel where the live request board is posted.")
+      .addChannelOption((opt) =>
+        opt
+          .setName("channel")
+          .setDescription("Text channel for the live board.")
+          .addChannelTypes(ChannelType.GuildText)
+          .setRequired(true),
+      ),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("invalidate")
+      .setDescription("Invalidate a request (spam, bad faith, etc.).")
+      .addIntegerOption((opt) =>
+        opt
+          .setName("id")
+          .setDescription("Request ID (shown in the embed footer).")
+          .setRequired(true),
+      )
+      .addStringOption((opt) =>
+        opt
+          .setName("reason")
+          .setDescription("Reason for invalidation.")
+          .setRequired(true),
+      ),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("user_stats")
+      .setDescription("View another user's proposal-request stats.")
+      .addUserOption((opt) =>
+        opt
+          .setName("user")
+          .setDescription("The user to inspect.")
+          .setRequired(true),
       ),
   );
 
 const commands = [
-  configCommand.toJSON(),
-  scanStatusCommand.toJSON(),
-  statsCommand.toJSON(),
+  requestCommand.toJSON(),
+  myStatsCommand.toJSON(),
+  leaderboardCommand.toJSON(),
+  adminCommand.toJSON(),
 ];
 
 const rest = new REST({ version: "10" }).setToken(DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log(
-      `Started refreshing ${commands.length} application (/) commands.`,
-    );
+    console.log(`Started refreshing ${commands.length} application (/) commands.`);
 
     if (GUILD_ID) {
-      // For testing: More faster
-      console.log(`Registering commands for guild: ${GUILD_ID}`);
+      // For testing: propagates instantly
       await rest.put(Routes.applicationGuildCommands(BOT_ID, GUILD_ID), {
         body: commands,
       });
       console.log(`Successfully registered commands for guild ${GUILD_ID}.`);
     } else {
-      // For production: need at least 1 hour to propagate
-      console.log("Registering commands globally.");
+      // For production: may take up to 1 hour to propagate
       await rest.put(Routes.applicationCommands(BOT_ID), { body: commands });
       console.log("Successfully registered commands globally.");
     }
