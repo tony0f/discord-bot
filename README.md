@@ -38,6 +38,7 @@ Since almost no OOV2 markets remain, users can no longer build the 5-proposals/9
 | `/request link:` | everyone | Open the dynamic request form for a Polymarket link |
 | `/mystats` | everyone | Your record and whitelist progress (ephemeral) |
 | `/leaderboard` | everyone | Top requesters, last 6 months |
+| `/requests` | everyone | List all active requests (pending/proposed), ephemeral |
 | `/pr-admin view_settings` | admins | Show runtime settings |
 | `/pr-admin set_credit_window hours:` | admins | Hours before an unproposed request expires |
 | `/pr-admin set_max_active value:` | admins | Max simultaneous active requests per user |
