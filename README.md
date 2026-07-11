@@ -18,7 +18,7 @@ Violations trigger an alert in **verifiers-alerts** and a public warning mention
 
 Since almost no OOV2 markets remain, users can no longer build the 5-proposals/95%-accuracy record the whitelist requires. This system replicates that record using **requests**:
 
-1. A user runs **`/request`** and fills a modal: Polymarket link, proposed outcome, evidence (must include a link), and optionally their wallet.
+1. A user runs **`/request link:<Polymarket URL>`**. The bot queries the Gamma API on the spot and opens a dynamic modal: if the link is an event with brackets (e.g. "What will Elon post this week"), a **dropdown lists only the requestable brackets** (already resolved/proposed/requested ones are hidden) with multi-select support; the outcome is a dropdown too (Yes/No/50-50 or the market's real outcomes). Evidence (must include a link) and an optional wallet complete the form.
 2. The bot validates the request:
    * The market exists, is not closed/resolved, and **has no on-chain proposal yet**.
    * The outcome matches the market's outcomes (`Yes`, `No`, team names, `50-50`, `p1`/`p2` shorthand).
@@ -35,7 +35,7 @@ Since almost no OOV2 markets remain, users can no longer build the 5-proposals/9
 
 | Command | Who | What |
 |---|---|---|
-| `/request` | everyone | Open the request form |
+| `/request link:` | everyone | Open the dynamic request form for a Polymarket link |
 | `/mystats` | everyone | Your record and whitelist progress (ephemeral) |
 | `/leaderboard` | everyone | Top requesters, last 6 months |
 | `/pr-admin view_settings` | admins | Show runtime settings |

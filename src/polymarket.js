@@ -104,6 +104,58 @@ async function resolveMarketFromUrl(rawUrl) {
   return { error: "Market not found on Polymarket. Please check the link." };
 }
 
+// Resolves a user-provided URL into data for the dynamic /request form.
+// Returns one of:
+//   { type: "market", market }                      — a single concrete market
+//   { type: "event", eventTitle, brackets: [...] }  — event with selectable brackets
+//   { error }                                       — user-facing message
+async function resolveLinkForForm(rawUrl) {
+  const parsed = parsePolymarketUrl(rawUrl);
+  if (!parsed) {
+    return {
+      error:
+        "That does not look like a valid Polymarket link. Expected `https://polymarket.com/event/...` or `https://polymarket.com/market/...`.",
+    };
+  }
+
+  // Most specific first: an explicit market slug
+  if (parsed.marketSlug) {
+    const market = await fetchMarketBySlug(parsed.marketSlug);
+    if (market) return { type: "market", market };
+  }
+
+  if (parsed.eventSlug) {
+    const event = await fetchEventBySlug(parsed.eventSlug);
+    if (event && Array.isArray(event.markets) && event.markets.length > 0) {
+      const requestable = event.markets.filter(
+        (m) => !m.closed && !hasProposal(m) && !isResolved(m),
+      );
+      if (requestable.length === 0) {
+        return {
+          error:
+            "Every market in that event is already closed, proposed, or resolved — nothing left to request.",
+        };
+      }
+      if (requestable.length === 1) {
+        const market = await fetchMarketBySlug(requestable[0].slug);
+        if (market) return { type: "market", market };
+      }
+      return {
+        type: "event",
+        eventTitle: event.title || parsed.eventSlug,
+        brackets: requestable.map((m) => ({
+          slug: m.slug,
+          title: m.groupItemTitle || m.question,
+          question: m.question,
+          conditionId: m.conditionId || null,
+        })),
+      };
+    }
+  }
+
+  return { error: "Market not found on Polymarket. Please check the link." };
+}
+
 function parseJsonArrayField(value) {
   if (Array.isArray(value)) return value;
   try {
@@ -200,6 +252,7 @@ function isEarlyClaim(market, now = Date.now()) {
 module.exports = {
   TIE_OUTCOME,
   resolveMarketFromUrl,
+  resolveLinkForForm,
   fetchMarketBySlug,
   getOutcomes,
   matchOutcome,

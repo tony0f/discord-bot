@@ -51,7 +51,9 @@ async function getUserStats(userId) {
 // Full validation pipeline for a new request. Returns:
 //   { ok: true, request, market } — created and stored
 //   { ok: false, error }         — user-facing rejection message
-async function createRequest({ user, displayName, marketUrl, outcomeInput, evidence, wallet }) {
+// The market is re-fetched fresh by slug: state may have changed between the
+// moment the form was shown and the moment it was submitted.
+async function createRequest({ user, displayName, marketSlug, outcomeInput, evidence, wallet }) {
   const settings = await db.getSettings();
 
   // 0. Basic input checks
@@ -93,10 +95,10 @@ async function createRequest({ user, displayName, marketUrl, outcomeInput, evide
     };
   }
 
-  // 2. Resolve the market on Polymarket
-  let resolved;
+  // 2. Fetch the market fresh from Polymarket
+  let market;
   try {
-    resolved = await pm.resolveMarketFromUrl(marketUrl);
+    market = await pm.fetchMarketBySlug(marketSlug);
   } catch (err) {
     console.error("[PR] Gamma API error:", err.message);
     return {
@@ -104,8 +106,9 @@ async function createRequest({ user, displayName, marketUrl, outcomeInput, evide
       error: "Could not reach the Polymarket API right now. Please try again in a few minutes.",
     };
   }
-  if (resolved.error) return { ok: false, error: resolved.error };
-  const market = resolved.market;
+  if (!market) {
+    return { ok: false, error: "Market not found on Polymarket. Please check the link." };
+  }
 
   // 3. Market-state gates
   if (pm.isResolved(market) || market.closed) {

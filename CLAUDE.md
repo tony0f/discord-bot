@@ -66,7 +66,9 @@ Postgres via `DATABASE_URL` (Railway plugin). Two tables: `settings` (key/value 
 
 ### Slash commands
 
-`/request` (modal: link, outcome, evidence, optional wallet), `/mystats`, `/leaderboard`, `/pr-admin` (admin: Administrator permission or Risk Labs role).
+`/request link:<url>` opens a **dynamic modal** built from a live Gamma lookup (must complete within Discord's 3s showModal window — the lookup runs with a 2.2s timeout): event links get a multi-select of requestable brackets (resolved/proposed/already-requested ones filtered out), plus an outcome select, evidence input, and optional wallet. Uses discord.js modal Label components (`ModalBuilder.addLabelComponents` + `LabelBuilder.setStringSelectMenuComponent`, read via `fields.getStringSelectValues`) — requires discord.js >= 14.22. Form context is stashed in an in-memory `pendingForms` map keyed by interaction id (15 min TTL); a bot restart between open and submit invalidates the form gracefully.
+
+`/mystats`, `/leaderboard`, `/pr-admin` (admin: Administrator permission, Risk Labs role, or an ID in `ADMIN_USER_IDS`; hidden from non-admins via default member permissions).
 
 ## Deployment
 

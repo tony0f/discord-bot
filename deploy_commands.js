@@ -21,6 +21,13 @@ const requestCommand = new SlashCommandBuilder()
   .setName("request")
   .setDescription(
     "Request a whitelisted proposer to propose a Polymarket market (counts toward your record).",
+  )
+  .addStringOption((opt) =>
+    opt
+      .setName("link")
+      .setDescription("Polymarket link (event or specific market).")
+      .setMaxLength(400)
+      .setRequired(true),
   );
 
 const myStatsCommand = new SlashCommandBuilder()

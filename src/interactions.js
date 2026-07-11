@@ -1,13 +1,15 @@
 const {
-  ActionRowBuilder,
   ModalBuilder,
+  LabelBuilder,
   TextInputBuilder,
   TextInputStyle,
+  StringSelectMenuBuilder,
   EmbedBuilder,
   MessageFlags,
   PermissionsBitField,
 } = require("discord.js");
 const db = require("./db");
+const pm = require("./polymarket");
 const pr = require("./proposalRequests");
 const { buildRequestEmbed } = require("./embeds");
 const { refreshDashboard } = require("./watcher");
@@ -19,7 +21,24 @@ const {
   QUALIFY_MIN_ACCURACY,
 } = require("./config");
 
-const REQUEST_MODAL_ID = "proposal_request_modal";
+const REQUEST_MODAL_PREFIX = "prq:";
+
+// Context captured when /request is invoked, consumed on modal submit.
+// Keyed by the command interaction id (embedded in the modal customId).
+const pendingForms = new Map();
+const FORM_TTL_MS = 15 * 60 * 1000;
+
+function pruneForms() {
+  const now = Date.now();
+  for (const [key, form] of pendingForms) {
+    if (now - form.createdAt > FORM_TTL_MS) pendingForms.delete(key);
+  }
+}
+
+function truncate(text, max) {
+  if (!text) return "";
+  return text.length <= max ? text : text.slice(0, max - 1) + "…";
+}
 
 function hasAccess(member) {
   return (
@@ -36,81 +55,190 @@ function dbDisabledReply(interaction) {
   });
 }
 
-function buildRequestModal() {
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Timed out after ${ms}ms`)), ms),
+    ),
+  ]);
+}
+
+// Builds the dynamic modal from the resolved link:
+// - event with brackets  → multi-select of brackets + Yes/No/50-50 select
+// - single market        → select with its real outcomes
+function buildRequestModal(interactionId, form, maxSelectable) {
   const modal = new ModalBuilder()
-    .setCustomId(REQUEST_MODAL_ID)
+    .setCustomId(`${REQUEST_MODAL_PREFIX}${interactionId}`)
     .setTitle("Request a market proposal");
 
-  modal.addComponents(
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId("market_link")
-        .setLabel("Polymarket link")
-        .setPlaceholder("https://polymarket.com/event/...")
-        .setStyle(TextInputStyle.Short)
-        .setMaxLength(400)
-        .setRequired(true),
-    ),
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId("outcome")
-        .setLabel("Proposed outcome")
-        .setPlaceholder('e.g. "Yes", "No", a team name, or "50-50"')
-        .setStyle(TextInputStyle.Short)
-        .setMaxLength(100)
-        .setRequired(true),
-    ),
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId("evidence")
-        .setLabel("Evidence (must include at least one link)")
-        .setPlaceholder("Sources, articles, official pages proving the outcome…")
-        .setStyle(TextInputStyle.Paragraph)
-        .setMaxLength(1000)
-        .setRequired(true),
-    ),
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId("wallet")
-        .setLabel("Your wallet address (optional)")
-        .setPlaceholder("0x… — needed later for whitelist inclusion")
-        .setStyle(TextInputStyle.Short)
-        .setMaxLength(50)
-        .setRequired(false),
-    ),
+  let outcomeOptions;
+
+  if (form.type === "event") {
+    const options = form.brackets.slice(0, 25).map((b) => ({
+      label: truncate(b.title, 100),
+      value: b.slug,
+      description: truncate(b.question, 100),
+    }));
+    modal.addLabelComponents(
+      new LabelBuilder()
+        .setLabel("Market bracket(s)")
+        .setDescription(truncate(`From: ${form.eventTitle}`, 100))
+        .setStringSelectMenuComponent(
+          new StringSelectMenuBuilder()
+            .setCustomId("market")
+            .setMinValues(1)
+            .setMaxValues(Math.min(maxSelectable, options.length))
+            .addOptions(options),
+        ),
+    );
+    // Brackets are binary Yes/No markets
+    outcomeOptions = ["Yes", "No", pm.TIE_OUTCOME];
+  } else {
+    outcomeOptions = [...pm.getOutcomes(form.market), pm.TIE_OUTCOME];
+  }
+
+  modal.addLabelComponents(
+    new LabelBuilder()
+      .setLabel("Proposed outcome")
+      .setDescription(
+        form.type === "event"
+          ? "Applies to every selected bracket"
+          : truncate(form.market.question, 100),
+      )
+      .setStringSelectMenuComponent(
+        new StringSelectMenuBuilder()
+          .setCustomId("outcome")
+          .setMinValues(1)
+          .setMaxValues(1)
+          .addOptions(
+            outcomeOptions.slice(0, 25).map((o) => ({
+              label: truncate(o, 100),
+              value: truncate(o, 100),
+            })),
+          ),
+      ),
+    new LabelBuilder()
+      .setLabel("Evidence (must include a link)")
+      .setTextInputComponent(
+        new TextInputBuilder()
+          .setCustomId("evidence")
+          .setPlaceholder("Sources proving the outcome, e.g. an X post, article, official page…")
+          .setStyle(TextInputStyle.Paragraph)
+          .setMaxLength(1000)
+          .setRequired(true),
+      ),
+    new LabelBuilder()
+      .setLabel("Your wallet address (optional)")
+      .setTextInputComponent(
+        new TextInputBuilder()
+          .setCustomId("wallet")
+          .setPlaceholder("0x… — needed later for whitelist inclusion")
+          .setStyle(TextInputStyle.Short)
+          .setMaxLength(50)
+          .setRequired(false),
+      ),
   );
+
   return modal;
 }
 
-async function handleRequestModalSubmit(interaction) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-  const marketUrl = interaction.fields.getTextInputValue("market_link");
-  const outcomeInput = interaction.fields.getTextInputValue("outcome");
-  const evidence = interaction.fields.getTextInputValue("evidence");
-  const wallet = interaction.fields.getTextInputValue("wallet") || null;
-
-  const result = await pr.createRequest({
-    user: interaction.user,
-    displayName: interaction.member?.displayName,
-    marketUrl,
-    outcomeInput,
-    evidence,
-    wallet,
-  });
-
-  if (!result.ok) {
-    return interaction.editReply({ content: `❌ ${result.error}` });
-  }
+async function handleRequestCommand(interaction) {
+  // Everything here must finish within Discord's 3s window (showModal cannot
+  // be deferred), so the Gamma lookup runs with a hard timeout.
+  const link = interaction.options.getString("link");
 
   const settings = await db.getSettings();
-  const creditWindowHours = parseInt(settings.credit_window_hours, 10);
-  const request = result.request;
+  const stats = await pr.getUserStats(interaction.user.id);
 
-  // Publish the request card in the proposal-requests channel with a
-  // discussion thread, mirroring the existing human workflow.
+  if (stats.qualified) {
+    return interaction.reply({
+      content:
+        `🎓 You already meet the whitelist criteria (**${stats.settled6m} settled**, **${(stats.accuracy6m * 100).toFixed(1)}%** accuracy). ` +
+        `New requests are closed for you — contact an admin to review your inclusion.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+  const maxActive = parseInt(settings.max_active_per_user, 10);
+  if (stats.active >= maxActive) {
+    return interaction.reply({
+      content: `❌ You already have **${stats.active} active requests** (max ${maxActive}). Wait until some are proposed or expire.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+  const dailyLimit = parseInt(settings.daily_request_limit, 10);
+  if (stats.last24h >= dailyLimit) {
+    return interaction.reply({
+      content: `❌ You reached the limit of **${dailyLimit} requests per 24h**. Try again later.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  let form;
   try {
-    const channel = await interaction.client.channels.fetch(PROPOSAL_REQUESTS_CHANNEL_ID);
+    form = await withTimeout(pm.resolveLinkForForm(link), 2200);
+  } catch (err) {
+    console.warn("[PR] resolveLinkForForm failed:", err.message);
+    return interaction.reply({
+      content: "❌ The Polymarket API took too long to answer. Please try again.",
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+  if (form.error) {
+    return interaction.reply({ content: `❌ ${form.error}`, flags: MessageFlags.Ephemeral });
+  }
+
+  // Immediate feedback for a direct market that is no longer requestable
+  if (form.type === "market") {
+    if (pm.isResolved(form.market) || form.market.closed) {
+      return interaction.reply({
+        content: `❌ **${form.market.question}** is already resolved/closed.`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    if (pm.hasProposal(form.market)) {
+      return interaction.reply({
+        content: `❌ **${form.market.question}** already has an on-chain proposal (\`${form.market.umaResolutionStatus}\`).`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+  }
+
+  // Hide brackets that already have an active request (first come, first served)
+  if (form.type === "event") {
+    try {
+      const active = await db.query(
+        `SELECT condition_id FROM proposal_requests WHERE status IN ('pending','proposed')`,
+      );
+      const taken = new Set(active.rows.map((r) => r.condition_id));
+      form.brackets = form.brackets.filter((b) => !b.conditionId || !taken.has(b.conditionId));
+    } catch {
+      /* non-fatal: createRequest dedupes anyway */
+    }
+    if (form.brackets.length === 0) {
+      return interaction.reply({
+        content: "❌ Every requestable market in that event already has an active request.",
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+  }
+
+  const remainingSlots = Math.max(1, maxActive - stats.active);
+  const maxSelectable = Math.min(remainingSlots, 5);
+
+  pruneForms();
+  pendingForms.set(interaction.id, {
+    type: form.type,
+    marketSlug: form.type === "market" ? form.market.slug : null,
+    createdAt: Date.now(),
+  });
+
+  return interaction.showModal(buildRequestModal(interaction.id, form, maxSelectable));
+}
+
+async function publishRequestCard(client, request, creditWindowHours) {
+  try {
+    const channel = await client.channels.fetch(PROPOSAL_REQUESTS_CHANNEL_ID);
     const message = await channel.send({
       embeds: [buildRequestEmbed(request, { creditWindowHours })],
     });
@@ -125,17 +253,71 @@ async function handleRequestModalSubmit(interaction) {
   } catch (err) {
     console.error(`[PR] Could not publish request #${request.id} to channel:`, err.message);
   }
+}
 
-  refreshDashboard(interaction.client).catch(() => {});
+async function handleRequestModalSubmit(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  return interaction.editReply({
-    content:
-      `✅ Request **#${request.id}** registered: **${request.market_question}** → **${request.requested_outcome}**.\n` +
-      `A whitelisted proposer must propose it within **${creditWindowHours}h** and the market must settle as you requested for it to count toward your record.` +
-      (request.early_claim
-        ? "\n⚠️ Note: the market's end time has not passed yet, so it was flagged as an *early resolution claim*."
-        : ""),
-  });
+  const formKey = interaction.customId.slice(REQUEST_MODAL_PREFIX.length);
+  const form = pendingForms.get(formKey);
+  pendingForms.delete(formKey);
+  if (!form) {
+    return interaction.editReply({
+      content: "❌ This form expired (or the bot restarted). Please run `/request` again.",
+    });
+  }
+
+  const outcomeInput = interaction.fields.getStringSelectValues("outcome")[0];
+  const evidence = interaction.fields.getTextInputValue("evidence");
+  const wallet = interaction.fields.getTextInputValue("wallet") || null;
+  const slugs =
+    form.type === "event"
+      ? interaction.fields.getStringSelectValues("market")
+      : [form.marketSlug];
+
+  const settings = await db.getSettings();
+  const creditWindowHours = parseInt(settings.credit_window_hours, 10);
+
+  const created = [];
+  const failed = [];
+  for (const slug of slugs) {
+    const result = await pr.createRequest({
+      user: interaction.user,
+      displayName: interaction.member?.displayName,
+      marketSlug: slug,
+      outcomeInput,
+      evidence,
+      wallet,
+    });
+    if (result.ok) {
+      created.push(result.request);
+      await publishRequestCard(interaction.client, result.request, creditWindowHours);
+    } else {
+      failed.push({ slug, error: result.error });
+    }
+  }
+
+  if (created.length > 0) {
+    refreshDashboard(interaction.client).catch(() => {});
+  }
+
+  const lines = [];
+  for (const request of created) {
+    lines.push(
+      `✅ **#${request.id}** ${truncate(request.market_question, 100)} → **${request.requested_outcome}**` +
+        (request.early_claim ? " ⚠️ *(early claim)*" : ""),
+    );
+  }
+  for (const f of failed) {
+    lines.push(`❌ \`${truncate(f.slug, 60)}\`: ${f.error}`);
+  }
+  if (created.length > 0) {
+    lines.push(
+      `\nA whitelisted proposer must propose within **${creditWindowHours}h** and the market must settle as requested for it to count toward your record.`,
+    );
+  }
+
+  return interaction.editReply({ content: truncate(lines.join("\n"), 2000) });
 }
 
 async function handleMyStats(interaction) {
@@ -317,7 +499,7 @@ async function handleInteraction(interaction) {
 
       if (commandName === "request") {
         if (!db.isEnabled()) return dbDisabledReply(interaction);
-        return interaction.showModal(buildRequestModal());
+        return handleRequestCommand(interaction);
       }
       if (commandName === "mystats") {
         if (!db.isEnabled()) return dbDisabledReply(interaction);
@@ -334,7 +516,7 @@ async function handleInteraction(interaction) {
       return;
     }
 
-    if (interaction.isModalSubmit() && interaction.customId === REQUEST_MODAL_ID) {
+    if (interaction.isModalSubmit() && interaction.customId.startsWith(REQUEST_MODAL_PREFIX)) {
       if (!db.isEnabled()) return dbDisabledReply(interaction);
       return handleRequestModalSubmit(interaction);
     }
