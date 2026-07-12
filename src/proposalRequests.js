@@ -258,8 +258,8 @@ async function invalidateRequest(id, reason) {
   return updateRequestStatus(id, { status: "invalidated", invalidated_reason: reason });
 }
 
-// Community warning: any user can flag an active request they believe is
-// bad-faith. One warning per request; admins review (invalidate or clear).
+// Community warnings: any user can flag an active request they believe is
+// bad-faith. Many warnings per request, at most one per reporter.
 async function reportRequest(id, reporter, reason) {
   const request = await getRequestById(id);
   if (!request) {
@@ -271,22 +271,47 @@ async function reportRequest(id, reporter, reason) {
   if (request.discord_user_id === reporter.id) {
     return { ok: false, error: "You cannot report your own request." };
   }
-  if (request.flag_reason) {
-    return {
-      ok: false,
-      error: `Request #${id} already has a community warning (by **${request.flagged_by_username}**). Admins will review it.`,
-    };
+  try {
+    await db.query(
+      `INSERT INTO request_reports (request_id, reporter_id, reporter_username, reason)
+       VALUES ($1, $2, $3, $4)`,
+      [id, reporter.id, reporter.username, reason],
+    );
+  } catch (err) {
+    if (err.code === "23505") {
+      return { ok: false, error: `You already reported request #${id}. Other users can add their own warnings.` };
+    }
+    throw err;
   }
-  const updated = await updateRequestStatus(id, {
-    flag_reason: reason,
-    flagged_by: reporter.id,
-    flagged_by_username: reporter.username,
-    flagged_at: new Date(),
-  });
-  return { ok: true, request: updated };
+  const reports = await getReports(id);
+  return { ok: true, request, reports };
 }
 
-async function clearFlag(id) {
+async function getReports(requestId) {
+  const res = await db.query(
+    `SELECT * FROM request_reports WHERE request_id = $1 ORDER BY created_at ASC`,
+    [requestId],
+  );
+  return res.rows;
+}
+
+// requestIds -> { [id]: reports[] } for rendering lists efficiently
+async function getReportsMap(requestIds) {
+  if (!requestIds || requestIds.length === 0) return {};
+  const res = await db.query(
+    `SELECT * FROM request_reports WHERE request_id = ANY($1) ORDER BY created_at ASC`,
+    [requestIds],
+  );
+  const map = {};
+  for (const row of res.rows) {
+    (map[row.request_id] = map[row.request_id] || []).push(row);
+  }
+  return map;
+}
+
+async function clearReports(id) {
+  await db.query(`DELETE FROM request_reports WHERE request_id = $1`, [id]);
+  // Also clear legacy columns so migrated flags don't resurrect on restart
   return updateRequestStatus(id, {
     flag_reason: null,
     flagged_by: null,
@@ -305,5 +330,7 @@ module.exports = {
   updateRequestStatus,
   invalidateRequest,
   reportRequest,
-  clearFlag,
+  getReports,
+  getReportsMap,
+  clearReports,
 };

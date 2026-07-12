@@ -17,10 +17,12 @@ async function editRequestMessage(client, request) {
     const channel = await client.channels.fetch(request.channel_id);
     const message = await channel.messages.fetch(request.message_id);
     const settings = await db.getSettings();
+    const reports = await pr.getReports(request.id);
     await message.edit({
       embeds: [
         buildRequestEmbed(request, {
           creditWindowHours: parseInt(settings.credit_window_hours, 10),
+          reports,
         }),
       ],
     });
@@ -58,7 +60,8 @@ async function refreshDashboard(client) {
 
   const creditWindowHours = parseInt(settings.credit_window_hours, 10);
   const requests = await pr.listActiveRequests();
-  const embed = buildDashboardEmbed(requests, { creditWindowHours });
+  const reportsMap = await pr.getReportsMap(requests.map((r) => r.id));
+  const embed = buildDashboardEmbed(requests, { creditWindowHours, reportsMap });
 
   try {
     const channel = await client.channels.fetch(channelId);

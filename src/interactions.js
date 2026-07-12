@@ -389,8 +389,10 @@ async function handleRequestsList(interaction) {
   await interaction.deferReply(); // public: proposers browse this together
   const settings = await db.getSettings();
   const requests = await pr.listActiveRequests();
+  const reportsMap = await pr.getReportsMap(requests.map((r) => r.id));
   const embed = buildDashboardEmbed(requests, {
     creditWindowHours: parseInt(settings.credit_window_hours, 10),
+    reportsMap,
   });
   return interaction.editReply({ embeds: [embed] });
 }
@@ -410,11 +412,15 @@ async function handleReport(interaction) {
   await editRequestMessage(interaction.client, request).catch(() => {});
   refreshDashboard(interaction.client).catch(() => {});
 
+  const warningCount = result.reports.length;
+
   // Public accountability: announce the warning under the request card
   try {
     const channel = await interaction.client.channels.fetch(PROPOSAL_REQUESTS_CHANNEL_ID);
     const payload = {
-      content: `🚩 <@${interaction.user.id}> flagged request **#${request.id}** (by <@${request.discord_user_id}>) with a community warning:\n> ${reason}\nAdmins will review it.`,
+      content:
+        `🚨 <@${interaction.user.id}> added a **community warning** to request **#${request.id}** (by <@${request.discord_user_id}>)` +
+        `${warningCount > 1 ? ` — now **${warningCount} warnings**` : ""}:\n> ${reason}\nAdmins will review it.`,
     };
     if (request.message_id) {
       payload.reply = { messageReference: request.message_id, failIfNotExists: false };
@@ -425,7 +431,7 @@ async function handleReport(interaction) {
   }
 
   return interaction.editReply({
-    content: `✅ Community warning added to request **#${request.id}**. Admins will review it — thank you for keeping the system honest.`,
+    content: `✅ Community warning added to request **#${request.id}** (${warningCount} total). Admins will review it — thank you for keeping the system honest.`,
   });
 }
 
@@ -532,16 +538,17 @@ async function handleAdmin(interaction) {
     if (!request) {
       return interaction.editReply({ content: `❌ Request #${id} not found.` });
     }
-    if (!request.flag_reason) {
-      return interaction.editReply({ content: `Request #${id} has no community warning to clear.` });
+    const reports = await pr.getReports(id);
+    if (reports.length === 0) {
+      return interaction.editReply({ content: `Request #${id} has no community warnings to clear.` });
     }
 
-    const updated = await pr.clearFlag(id);
+    const updated = await pr.clearReports(id);
     const { editRequestMessage } = require("./watcher");
     await editRequestMessage(interaction.client, updated).catch(() => {});
     refreshDashboard(interaction.client).catch(() => {});
     return interaction.editReply({
-      content: `✅ Community warning cleared from request #${id}.`,
+      content: `✅ Cleared **${reports.length}** community warning(s) from request #${id}.`,
     });
   }
 

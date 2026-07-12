@@ -31,7 +31,7 @@ Since almost no OOV2 markets remain, users can no longer build the 5-proposals/9
    * **`expired`** — nobody proposed within the window → no credit. This is the main protection against spam and too-early (P4) farming.
 5. Stats accumulate per user over a rolling 6 months. Reaching **5+ settled requests with ≥95% accuracy** flags the user as whitelist-qualified (and closes new requests for them).
 
-**Community moderation:** anyone can `/report` an active request they believe is bad-faith. The request card turns red with a **🚩 COMMUNITY WARNING** (reporter + reason), the live board marks it, and the report is announced publicly under the card. Admins then either `/pr-admin invalidate` it (it never counts) or `/pr-admin clear_flag` if the report doesn't hold. **Early-resolution claims** (market end time still in the future) are allowed — per UMA rules a market is proposable as soon as its event occurs — but the card carries a ⚠️ note telling proposers to verify the evidence with extra care.
+**Community moderation:** anyone can `/report` an active request they believe is bad-faith — multiple users can each add one warning per request. The card turns red with a **🚨 COMMUNITY WARNINGS (N)** banner listing every reporter and reason chronologically, the live board shows them (🚩×N badge), and each report is announced publicly under the card. Admins then either `/pr-admin invalidate` the request (it never counts) or `/pr-admin clear_flag` to remove all warnings if they don't hold. **Early-resolution claims** (market end time still in the future) are allowed — per UMA rules a market is proposable as soon as its event occurs — but the card carries a ⚠️ note telling proposers to verify the evidence with extra care.
 
 ### Commands
 

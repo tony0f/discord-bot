@@ -80,13 +80,40 @@ async function createSchema() {
     );
   `);
 
-  // Community-warning (report) fields — added after initial release
+  // Legacy single-flag columns (superseded by request_reports, kept for migration)
   await pool.query(`
     ALTER TABLE proposal_requests
       ADD COLUMN IF NOT EXISTS flag_reason TEXT,
       ADD COLUMN IF NOT EXISTS flagged_by TEXT,
       ADD COLUMN IF NOT EXISTS flagged_by_username TEXT,
       ADD COLUMN IF NOT EXISTS flagged_at TIMESTAMPTZ;
+  `);
+
+  // Community warnings: many per request, at most one per reporter
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS request_reports (
+      id SERIAL PRIMARY KEY,
+      request_id INTEGER NOT NULL REFERENCES proposal_requests(id) ON DELETE CASCADE,
+      reporter_id TEXT NOT NULL,
+      reporter_username TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_report_per_user
+    ON request_reports (request_id, reporter_id);
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_reports_request ON request_reports (request_id);`,
+  );
+  // One-time migration of legacy single-flag data
+  await pool.query(`
+    INSERT INTO request_reports (request_id, reporter_id, reporter_username, reason, created_at)
+    SELECT id, flagged_by, flagged_by_username, flag_reason, COALESCE(flagged_at, now())
+    FROM proposal_requests
+    WHERE flag_reason IS NOT NULL AND flagged_by IS NOT NULL
+    ON CONFLICT (request_id, reporter_id) DO NOTHING;
   `);
 
   // Only one active (pending/proposed) request per market — first come, first served

@@ -18,25 +18,39 @@ function unixSeconds(date) {
   return Math.floor(new Date(date).getTime() / 1000);
 }
 
-function buildRequestEmbed(request, { creditWindowHours } = {}) {
+function buildRequestEmbed(request, { creditWindowHours, reports = [] } = {}) {
   const display = STATUS_DISPLAY[request.status] || STATUS_DISPLAY.pending;
   const isActive = request.status === "pending" || request.status === "proposed";
-  // A community warning visually takes over the card while the request is active
-  const color = request.flag_reason && isActive ? 0xe74c3c : display.color;
+  // Community warnings visually take over the card while the request is active
+  const color = reports.length > 0 && isActive ? 0xe74c3c : display.color;
 
   const embed = new EmbedBuilder()
-    .setTitle(truncate(request.market_question, 256))
+    .setTitle(
+      truncate(
+        `${reports.length > 0 ? "🚩 " : ""}${request.market_question}`,
+        256,
+      ),
+    )
     .setURL(request.market_url)
     .setColor(color)
     .setTimestamp(new Date(request.created_at));
 
-  if (request.flag_reason) {
+  if (reports.length > 0) {
+    const listed = reports
+      .slice(0, 5)
+      .map(
+        (rep, i) =>
+          `> **${i + 1}. ${rep.reporter_username}** (<t:${unixSeconds(rep.created_at)}:R>): ${truncate(rep.reason, 150)}`,
+      );
+    let value =
+      `‼️ **PROPOSERS BEWARE — verify everything before proposing** ‼️\n${listed.join("\n")}`;
+    if (reports.length > 5) {
+      value += `\n> *…and ${reports.length - 5} more.*`;
+    }
+    value += "\n*Under admin review.*";
     embed.addFields({
-      name: "🚩 COMMUNITY WARNING",
-      value: truncate(
-        `Reported by <@${request.flagged_by}> (**${request.flagged_by_username}**):\n> ${request.flag_reason}\n*Under admin review — proposers, be extra careful.*`,
-        1024,
-      ),
+      name: `🚨 COMMUNITY WARNINGS (${reports.length}) 🚨`,
+      value: truncate(value, 1024),
     });
   }
 
@@ -100,7 +114,7 @@ function buildRequestEmbed(request, { creditWindowHours } = {}) {
   return embed;
 }
 
-function buildDashboardEmbed(requests, { creditWindowHours }) {
+function buildDashboardEmbed(requests, { creditWindowHours, reportsMap = {} }) {
   const embed = new EmbedBuilder()
     .setTitle("📋 Proposal Requests — Live Board")
     .setColor(0x9b59b6)
@@ -117,8 +131,9 @@ function buildDashboardEmbed(requests, { creditWindowHours }) {
   const blocks = [];
   for (const r of requests.slice(0, 15)) {
     const statusEmoji = r.status === "proposed" ? "📤" : "⏳";
+    const reports = reportsMap[r.id] || [];
     const badges = [
-      r.flag_reason ? "🚩" : "",
+      reports.length > 0 ? `🚩${reports.length > 1 ? `×${reports.length}` : ""}` : "",
       r.early_claim ? "⚠️" : "",
     ].filter(Boolean).join(" ");
 
@@ -138,8 +153,16 @@ function buildDashboardEmbed(requests, { creditWindowHours }) {
     if (r.early_claim) {
       lines.push("> ⚠️ *Early resolution — proposable only once the event has occurred*");
     }
-    if (r.flag_reason) {
-      lines.push(`> 🚩 **Community warning** by ${r.flagged_by_username}: *${truncate(r.flag_reason, 120)}*`);
+    if (reports.length > 0) {
+      lines.push(
+        `> 🚨 **${reports.length} COMMUNITY WARNING${reports.length > 1 ? "S" : ""} — proposers beware:**`,
+      );
+      for (const rep of reports.slice(0, 3)) {
+        lines.push(`> ‣ **${rep.reporter_username}**: *${truncate(rep.reason, 100)}*`);
+      }
+      if (reports.length > 3) {
+        lines.push(`> ‣ *…and ${reports.length - 3} more (see the card)*`);
+      }
     }
     if (r.status === "pending") {
       const expiresAt = unixSeconds(
