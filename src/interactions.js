@@ -243,20 +243,31 @@ async function publishRequestCard(client, request, creditWindowHours) {
       embeds: [buildRequestEmbed(request, { creditWindowHours })],
     });
     await pr.setRequestMessage(request.id, channel.id, message.id);
+
+    // Full evidence goes below the card as a plain message: full width,
+    // clickable links with previews, and no embed length limits.
+    if (request.evidence && request.evidence.length > 250) {
+      try {
+        const header = `📎 **Evidence — request #${request.id}** (from <@${request.discord_user_id}>):\n`;
+        const chunks =
+          (header + request.evidence).match(/[\s\S]{1,1900}/g) || [];
+        for (let i = 0; i < chunks.length; i++) {
+          const payload = { content: chunks[i] };
+          if (i === 0) {
+            payload.reply = { messageReference: message.id, failIfNotExists: false };
+            payload.allowedMentions = { parse: [] };
+          }
+          await channel.send(payload);
+        }
+      } catch (evidenceErr) {
+        console.warn(`[PR] Could not post full evidence for request #${request.id}:`, evidenceErr.message);
+      }
+    }
+
     try {
-      const thread = await message.startThread({
+      await message.startThread({
         name: `#${request.id} ${request.market_question}`.slice(0, 100),
       });
-      // The embed field truncates at 1024 chars — post the full evidence
-      // in the discussion thread so nothing is lost.
-      if (request.evidence && request.evidence.length > 1000) {
-        const chunks = request.evidence.match(/[\s\S]{1,1900}/g) || [];
-        for (let i = 0; i < chunks.length; i++) {
-          await thread.send(
-            (i === 0 ? `📎 **Full evidence from <@${request.discord_user_id}>:**\n` : "") + chunks[i],
-          );
-        }
-      }
     } catch (threadErr) {
       console.warn(`[PR] Could not create discussion thread for request #${request.id}:`, threadErr.message);
     }
@@ -314,8 +325,7 @@ async function handleRequestModalSubmit(interaction) {
   const lines = [];
   for (const request of created) {
     lines.push(
-      `✅ **#${request.id}** ${truncate(request.market_question, 100)} → **${request.requested_outcome}**` +
-        (request.early_claim ? " ⚠️ *(early resolution — proposable once the event occurs)*" : ""),
+      `✅ **#${request.id}** ${truncate(request.market_question, 100)} → **${request.requested_outcome}**`,
     );
   }
   for (const f of failed) {

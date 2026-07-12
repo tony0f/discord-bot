@@ -73,8 +73,9 @@ function buildRequestEmbed(request, { creditWindowHours, reports = [] } = {}) {
     {
       name: "Evidence",
       value: request.evidence
-        ? truncate(request.evidence, 1024)
-        : "*None provided — e.g. proving a negative (\"No\")*",
+        ? truncate(request.evidence, 250) +
+          (request.evidence.length > 250 ? "\n*(full evidence posted below ⤵️)*" : "")
+        : "*None provided*",
     },
   );
 
@@ -86,14 +87,6 @@ function buildRequestEmbed(request, { creditWindowHours, reports = [] } = {}) {
     embed.addFields({
       name: "Market end date",
       value: `<t:${unixSeconds(request.end_date)}:f> (<t:${unixSeconds(request.end_date)}:R>)`,
-      inline: true,
-    });
-  }
-  if (request.early_claim) {
-    embed.addFields({
-      name: "⚠️ Early resolution",
-      value:
-        "The market's scheduled end time has not passed. Per the rules it **can** be proposed as soon as the event has occurred — but only then. Verify the evidence carefully (DYOR).",
       inline: true,
     });
   }
@@ -132,10 +125,8 @@ function buildDashboardEmbed(requests, { creditWindowHours, reportsMap = {} }) {
   for (const r of requests.slice(0, 15)) {
     const statusEmoji = r.status === "proposed" ? "📤" : "⏳";
     const reports = reportsMap[r.id] || [];
-    const badges = [
-      reports.length > 0 ? `🚩${reports.length > 1 ? `×${reports.length}` : ""}` : "",
-      r.early_claim ? "⚠️" : "",
-    ].filter(Boolean).join(" ");
+    const badges =
+      reports.length > 0 ? `🚩${reports.length > 1 ? `×${reports.length}` : ""}` : "";
 
     const lines = [
       `${statusEmoji} **#${r.id} — [${truncate(r.market_question, 90)}](${r.market_url})** ${badges}`.trimEnd(),
@@ -149,9 +140,6 @@ function buildDashboardEmbed(requests, { creditWindowHours, reportsMap = {} }) {
           ? `${evidenceUrls[0]}${evidenceUrls.length > 1 ? ` *(+${evidenceUrls.length - 1} more in the card)*` : ""}`
           : truncate(r.evidence, 150);
       lines.push(`> 📎 **Evidence:** ${truncate(evidenceLine, 220)}`);
-    }
-    if (r.early_claim) {
-      lines.push("> ⚠️ *Early resolution — proposable only once the event has occurred*");
     }
     if (reports.length > 0) {
       lines.push(
