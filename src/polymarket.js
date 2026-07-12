@@ -29,6 +29,27 @@ async function fetchMarketBySlug(slug) {
   return Array.isArray(closedData) && closedData.length > 0 ? closedData[0] : null;
 }
 
+// Bulk-fetch full market objects for many slugs in few calls. Gamma accepts
+// repeated slug params but silently drops closed markets from the default
+// view, so missing ones are retried with closed=true.
+async function fetchMarketsBySlugs(slugs) {
+  if (!slugs || slugs.length === 0) return [];
+  const bySlug = new Map();
+  for (let i = 0; i < slugs.length; i += 20) {
+    const chunk = slugs.slice(i, i + 20);
+    const qs = chunk.map((s) => `slug=${encodeURIComponent(s)}`).join("&");
+    const open = await gammaGet(`/markets?${qs}&limit=100`);
+    for (const m of open) bySlug.set(m.slug, m);
+    const missing = chunk.filter((s) => !bySlug.has(s));
+    if (missing.length > 0) {
+      const qsClosed = missing.map((s) => `slug=${encodeURIComponent(s)}`).join("&");
+      const closed = await gammaGet(`/markets?${qsClosed}&closed=true&limit=100`);
+      for (const m of closed) bySlug.set(m.slug, m);
+    }
+  }
+  return slugs.map((s) => bySlug.get(s)).filter(Boolean);
+}
+
 async function fetchEventBySlug(slug) {
   const data = await gammaGet(`/events?slug=${encodeURIComponent(slug)}`);
   return Array.isArray(data) && data.length > 0 ? data[0] : null;
@@ -267,6 +288,7 @@ module.exports = {
   resolveMarketFromUrl,
   resolveLinkForForm,
   fetchMarketBySlug,
+  fetchMarketsBySlugs,
   getOutcomes,
   matchOutcome,
   hasProposal,

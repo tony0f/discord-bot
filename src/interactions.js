@@ -4,6 +4,9 @@ const {
   TextInputBuilder,
   TextInputStyle,
   StringSelectMenuBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   EmbedBuilder,
   MessageFlags,
   PermissionsBitField,
@@ -21,10 +24,14 @@ const {
   QUALIFY_MIN_ACCURACY,
 } = require("./config");
 
-const REQUEST_MODAL_PREFIX = "prq:";
+const REQUEST_MODAL_PREFIX = "prq:";     // single-market flow: outcome+evidence modal
+const COMBO_MODAL_PREFIX = "prq2:";      // event flow: evidence modal after line selection
+const COMBO_SELECT_PREFIX = "prqsel:";   // event flow: line→outcome select menus
+const COMBO_GO_PREFIX = "prqgo:";        // event flow: Continue button
+const COMBO_CANCEL_PREFIX = "prqcancel:"; // event flow: Cancel button
 
-// Context captured when /request is invoked, consumed on modal submit.
-// Keyed by the command interaction id (embedded in the modal customId).
+// Context captured when /request is invoked, consumed by later interactions.
+// Keyed by the command interaction id (embedded in component customIds).
 const pendingForms = new Map();
 const FORM_TTL_MS = 15 * 60 * 1000;
 
@@ -64,83 +71,109 @@ function withTimeout(promise, ms) {
   ]);
 }
 
-// Builds the dynamic modal from the resolved link:
-// - event with brackets  → multi-select of brackets + Yes/No/50-50 select
-// - single market        → select with its real outcomes
-function buildRequestModal(interactionId, form, maxSelectable) {
-  const modal = new ModalBuilder()
+function evidenceLabel() {
+  return new LabelBuilder()
+    .setLabel("Evidence (optional — links and details help)")
+    .setTextInputComponent(
+      new TextInputBuilder()
+        .setCustomId("evidence")
+        .setPlaceholder("Sources proving the outcome, e.g. an X post, article, official page…")
+        .setStyle(TextInputStyle.Paragraph)
+        .setMaxLength(4000)
+        .setRequired(false),
+    );
+}
+
+function walletLabel() {
+  return new LabelBuilder()
+    .setLabel("Your wallet address (optional)")
+    .setTextInputComponent(
+      new TextInputBuilder()
+        .setCustomId("wallet")
+        .setPlaceholder("0x… — needed later for whitelist inclusion")
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(50)
+        .setRequired(false),
+    );
+}
+
+// Single-market flow: one modal with the market's real outcomes + evidence.
+function buildSingleMarketModal(interactionId, market) {
+  const outcomeOptions = [...pm.getOutcomes(market), pm.TIE_OUTCOME];
+  return new ModalBuilder()
     .setCustomId(`${REQUEST_MODAL_PREFIX}${interactionId}`)
-    .setTitle("Request a market proposal");
-
-  let outcomeOptions;
-
-  if (form.type === "event") {
-    const options = form.brackets.slice(0, 25).map((b) => ({
-      label: truncate(b.title, 100),
-      value: b.slug,
-      description: truncate(b.question, 100),
-    }));
-    modal.addLabelComponents(
+    .setTitle("Request a market proposal")
+    .addLabelComponents(
       new LabelBuilder()
-        .setLabel("Market bracket(s)")
-        .setDescription(truncate(`From: ${form.eventTitle}`, 100))
+        .setLabel("Proposed outcome")
+        .setDescription(truncate(market.question, 100))
         .setStringSelectMenuComponent(
           new StringSelectMenuBuilder()
-            .setCustomId("market")
+            .setCustomId("outcome")
             .setMinValues(1)
-            .setMaxValues(Math.min(maxSelectable, options.length))
-            .addOptions(options),
+            .setMaxValues(1)
+            .addOptions(
+              outcomeOptions.slice(0, 25).map((o) => ({
+                label: truncate(o, 100),
+                value: truncate(o, 100),
+              })),
+            ),
         ),
+      evidenceLabel(),
+      walletLabel(),
     );
-    // Brackets are binary Yes/No markets
-    outcomeOptions = ["Yes", "No", pm.TIE_OUTCOME];
-  } else {
-    outcomeOptions = [...pm.getOutcomes(form.market), pm.TIE_OUTCOME];
-  }
+}
 
-  modal.addLabelComponents(
-    new LabelBuilder()
-      .setLabel("Proposed outcome")
-      .setDescription(
-        form.type === "event"
-          ? "Applies to every selected bracket"
-          : truncate(form.market.question, 100),
-      )
-      .setStringSelectMenuComponent(
+// Event flow, step 2: evidence modal shown after lines were selected.
+function buildEvidenceModal(sessionId, lineCount) {
+  return new ModalBuilder()
+    .setCustomId(`${COMBO_MODAL_PREFIX}${sessionId}`)
+    .setTitle(`Request ${lineCount} line(s)`)
+    .addLabelComponents(evidenceLabel(), walletLabel());
+}
+
+// Event flow, step 1: every requestable line×outcome pair as an option,
+// spread over up to 4 multi-selects (25 options each), plus buttons.
+const MAX_COMBO_SELECTS = 4;
+
+function buildComboComponents(sessionId, combos) {
+  const rows = [];
+  for (let i = 0; i < combos.length && rows.length < MAX_COMBO_SELECTS; i += 25) {
+    const chunk = combos.slice(i, i + 25);
+    rows.push(
+      new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
-          .setCustomId("outcome")
-          .setMinValues(1)
-          .setMaxValues(1)
+          .setCustomId(`${COMBO_SELECT_PREFIX}${sessionId}:${rows.length}`)
+          .setPlaceholder(
+            combos.length > 25
+              ? `Select line(s) — ${i + 1} to ${i + chunk.length}`
+              : "Select the line(s) you want proposed",
+          )
+          .setMinValues(0)
+          .setMaxValues(chunk.length)
           .addOptions(
-            outcomeOptions.slice(0, 25).map((o) => ({
-              label: truncate(o, 100),
-              value: truncate(o, 100),
+            chunk.map((c) => ({
+              label: truncate(c.label, 100),
+              value: c.value,
+              description: truncate(c.question, 100),
             })),
           ),
       ),
-    new LabelBuilder()
-      .setLabel("Evidence (optional — links and details help)")
-      .setTextInputComponent(
-        new TextInputBuilder()
-          .setCustomId("evidence")
-          .setPlaceholder("Sources proving the outcome, e.g. an X post, article, official page…")
-          .setStyle(TextInputStyle.Paragraph)
-          .setMaxLength(4000)
-          .setRequired(false),
-      ),
-    new LabelBuilder()
-      .setLabel("Your wallet address (optional)")
-      .setTextInputComponent(
-        new TextInputBuilder()
-          .setCustomId("wallet")
-          .setPlaceholder("0x… — needed later for whitelist inclusion")
-          .setStyle(TextInputStyle.Short)
-          .setMaxLength(50)
-          .setRequired(false),
-      ),
+    );
+  }
+  rows.push(
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`${COMBO_GO_PREFIX}${sessionId}`)
+        .setLabel("Continue →")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`${COMBO_CANCEL_PREFIX}${sessionId}`)
+        .setLabel("Cancel")
+        .setStyle(ButtonStyle.Secondary),
+    ),
   );
-
-  return modal;
+  return rows;
 }
 
 async function handleRequestCommand(interaction) {
@@ -188,7 +221,7 @@ async function handleRequestCommand(interaction) {
     return interaction.reply({ content: `❌ ${form.error}`, flags: MessageFlags.Ephemeral });
   }
 
-  // Immediate feedback for a direct market that is no longer requestable
+  // --- Single-market flow: straight to the modal (cannot defer showModal) ---
   if (form.type === "market") {
     if (pm.isResolved(form.market) || form.market.closed) {
       return interaction.reply({
@@ -202,38 +235,89 @@ async function handleRequestCommand(interaction) {
         flags: MessageFlags.Ephemeral,
       });
     }
+
+    pruneForms();
+    pendingForms.set(interaction.id, {
+      kind: "market",
+      marketSlug: form.market.slug,
+      createdAt: Date.now(),
+    });
+    return interaction.showModal(buildSingleMarketModal(interaction.id, form.market));
   }
 
-  // Hide brackets that already have an active request (first come, first served)
-  if (form.type === "event") {
-    try {
-      const active = await db.query(
-        `SELECT condition_id FROM proposal_requests WHERE status IN ('pending','proposed')`,
-      );
-      const taken = new Set(active.rows.map((r) => r.condition_id));
-      form.brackets = form.brackets.filter((b) => !b.conditionId || !taken.has(b.conditionId));
-    } catch {
-      /* non-fatal: createRequest dedupes anyway */
-    }
-    if (form.brackets.length === 0) {
-      return interaction.reply({
-        content: "❌ Every requestable market in that event already has an active request.",
-        flags: MessageFlags.Ephemeral,
+  // --- Event flow: line×outcome pickers. A normal reply CAN be deferred, so
+  // there is time to re-verify every bracket with fresh full-market data
+  // (the event endpoint's nested statuses can be stale). ---
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  let freshMarkets;
+  try {
+    freshMarkets = await pm.fetchMarketsBySlugs(form.brackets.map((b) => b.slug));
+  } catch (err) {
+    console.warn("[PR] Bulk market fetch failed:", err.message);
+    return interaction.editReply({
+      content: "❌ The Polymarket API failed while loading the event's markets. Please try again.",
+    });
+  }
+
+  let requestable = freshMarkets.filter(
+    (m) => !m.closed && !pm.isResolved(m) && !pm.hasProposal(m),
+  );
+
+  // Hide markets that already have an active request (first come, first served)
+  try {
+    const active = await db.query(
+      `SELECT condition_id FROM proposal_requests WHERE status IN ('pending','proposed')`,
+    );
+    const taken = new Set(active.rows.map((r) => r.condition_id));
+    requestable = requestable.filter((m) => !taken.has(m.conditionId));
+  } catch {
+    /* non-fatal: createRequest dedupes anyway */
+  }
+
+  if (requestable.length === 0) {
+    return interaction.editReply({
+      content:
+        "❌ Every market in that event is already proposed, resolved, or has an active request — nothing left to request.",
+    });
+  }
+
+  const combos = [];
+  for (const market of requestable) {
+    const outcomes = pm.getOutcomes(market);
+    const title = market.groupItemTitle || market.question;
+    for (let i = 0; i < outcomes.length; i++) {
+      combos.push({
+        value: `${market.slug}|${i}`,
+        slug: market.slug,
+        outcome: outcomes[i],
+        label: `${title} → ${outcomes[i]}`,
+        question: market.question,
       });
     }
   }
-
-  const remainingSlots = Math.max(1, maxActive - stats.active);
-  const maxSelectable = Math.min(remainingSlots, 5);
+  const shown = combos.slice(0, MAX_COMBO_SELECTS * 25);
 
   pruneForms();
   pendingForms.set(interaction.id, {
-    type: form.type,
-    marketSlug: form.type === "market" ? form.market.slug : null,
+    kind: "combo",
+    combos: Object.fromEntries(shown.map((c) => [c.value, c])),
+    selections: {},
     createdAt: Date.now(),
   });
 
-  return interaction.showModal(buildRequestModal(interaction.id, form, maxSelectable));
+  let content =
+    `**${form.eventTitle}**\n` +
+    `Found **${requestable.length} requestable market(s)** (${shown.length} line options). ` +
+    `Pick every line you want proposed — each with its own outcome — then press **Continue**.`;
+  if (combos.length > shown.length) {
+    content += `\n⚠️ ${combos.length - shown.length} option(s) could not be shown (Discord limit). Use a direct market link for those.`;
+  }
+
+  return interaction.editReply({
+    content,
+    components: buildComboComponents(interaction.id, shown),
+  });
 }
 
 async function publishRequestCard(client, request, creditWindowHours) {
@@ -276,37 +360,19 @@ async function publishRequestCard(client, request, creditWindowHours) {
   }
 }
 
-async function handleRequestModalSubmit(interaction) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-  const formKey = interaction.customId.slice(REQUEST_MODAL_PREFIX.length);
-  const form = pendingForms.get(formKey);
-  pendingForms.delete(formKey);
-  if (!form) {
-    return interaction.editReply({
-      content: "❌ This form expired (or the bot restarted). Please run `/request` again.",
-    });
-  }
-
-  const outcomeInput = interaction.fields.getStringSelectValues("outcome")[0];
-  const evidence = interaction.fields.getTextInputValue("evidence");
-  const wallet = interaction.fields.getTextInputValue("wallet") || null;
-  const slugs =
-    form.type === "event"
-      ? interaction.fields.getStringSelectValues("market")
-      : [form.marketSlug];
-
+// Shared tail of both flows: create each request, publish cards, summarize.
+async function processRequests(interaction, items, evidence, wallet) {
   const settings = await db.getSettings();
   const creditWindowHours = parseInt(settings.credit_window_hours, 10);
 
   const created = [];
   const failed = [];
-  for (const slug of slugs) {
+  for (const item of items) {
     const result = await pr.createRequest({
       user: interaction.user,
       displayName: interaction.member?.displayName,
-      marketSlug: slug,
-      outcomeInput,
+      marketSlug: item.slug,
+      outcomeInput: item.outcome,
       evidence,
       wallet,
     });
@@ -314,7 +380,7 @@ async function handleRequestModalSubmit(interaction) {
       created.push(result.request);
       await publishRequestCard(interaction.client, result.request, creditWindowHours);
     } else {
-      failed.push({ slug, error: result.error });
+      failed.push({ label: item.label || item.slug, error: result.error });
     }
   }
 
@@ -325,19 +391,126 @@ async function handleRequestModalSubmit(interaction) {
   const lines = [];
   for (const request of created) {
     lines.push(
-      `✅ **#${request.id}** ${truncate(request.market_question, 100)} → **${request.requested_outcome}**`,
+      `✅ **#${request.id}** ${truncate(request.market_question, 80)} → **${request.requested_outcome}**`,
     );
   }
   for (const f of failed) {
-    lines.push(`❌ \`${truncate(f.slug, 60)}\`: ${f.error}`);
+    lines.push(`❌ **${truncate(f.label, 60)}**: ${f.error}`);
   }
   if (created.length > 0) {
     lines.push(
       `\nA whitelisted proposer must propose within **${creditWindowHours}h** and the market must settle as requested for it to count toward your record.`,
     );
   }
+  return truncate(lines.join("\n"), 2000);
+}
 
-  return interaction.editReply({ content: truncate(lines.join("\n"), 2000) });
+async function handleRequestModalSubmit(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const formKey = interaction.customId.slice(REQUEST_MODAL_PREFIX.length);
+  const form = pendingForms.get(formKey);
+  pendingForms.delete(formKey);
+  if (!form || form.kind !== "market") {
+    return interaction.editReply({
+      content: "❌ This form expired (or the bot restarted). Please run `/request` again.",
+    });
+  }
+
+  const outcome = interaction.fields.getStringSelectValues("outcome")[0];
+  const evidence = interaction.fields.getTextInputValue("evidence") || "";
+  const wallet = interaction.fields.getTextInputValue("wallet") || null;
+
+  const content = await processRequests(
+    interaction,
+    [{ slug: form.marketSlug, outcome }],
+    evidence,
+    wallet,
+  );
+  return interaction.editReply({ content });
+}
+
+async function handleComboSelect(interaction) {
+  const [sessionId, idx] = interaction.customId
+    .slice(COMBO_SELECT_PREFIX.length)
+    .split(":");
+  const session = pendingForms.get(sessionId);
+  if (!session || session.kind !== "combo") {
+    return interaction.update({
+      content: "❌ This picker expired. Please run `/request` again.",
+      components: [],
+    });
+  }
+  session.selections[idx] = interaction.values;
+  return interaction.deferUpdate();
+}
+
+async function handleComboContinue(interaction) {
+  const sessionId = interaction.customId.slice(COMBO_GO_PREFIX.length);
+  const session = pendingForms.get(sessionId);
+  if (!session || session.kind !== "combo") {
+    return interaction.update({
+      content: "❌ This picker expired. Please run `/request` again.",
+      components: [],
+    });
+  }
+  const selected = Object.values(session.selections).flat();
+  if (selected.length === 0) {
+    return interaction.reply({
+      content: "Select at least one line first.",
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+  return interaction.showModal(buildEvidenceModal(sessionId, selected.length));
+}
+
+async function handleComboCancel(interaction) {
+  const sessionId = interaction.customId.slice(COMBO_CANCEL_PREFIX.length);
+  pendingForms.delete(sessionId);
+  return interaction.update({ content: "Request cancelled.", components: [] });
+}
+
+async function handleComboModalSubmit(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const sessionId = interaction.customId.slice(COMBO_MODAL_PREFIX.length);
+  const session = pendingForms.get(sessionId);
+  pendingForms.delete(sessionId);
+  if (!session || session.kind !== "combo") {
+    return interaction.editReply({
+      content: "❌ This form expired (or the bot restarted). Please run `/request` again.",
+    });
+  }
+
+  const evidence = interaction.fields.getTextInputValue("evidence") || "";
+  const wallet = interaction.fields.getTextInputValue("wallet") || null;
+
+  const raw = Object.values(session.selections)
+    .flat()
+    .map((v) => session.combos[v])
+    .filter(Boolean);
+
+  // Both outcomes of the same market can't be requested together
+  const seenSlugs = new Set();
+  const items = [];
+  let conflicts = 0;
+  for (const combo of raw) {
+    if (seenSlugs.has(combo.slug)) {
+      conflicts++;
+      continue;
+    }
+    seenSlugs.add(combo.slug);
+    items.push(combo);
+  }
+
+  let content = await processRequests(interaction, items, evidence, wallet);
+  if (conflicts > 0) {
+    content = truncate(
+      `⚠️ Skipped ${conflicts} selection(s) that conflicted with another outcome for the same market.\n${content}`,
+      2000,
+    );
+  }
+  return interaction.editReply({ content });
 }
 
 async function handleMyStats(interaction) {
@@ -616,9 +789,31 @@ async function handleInteraction(interaction) {
       return;
     }
 
-    if (interaction.isModalSubmit() && interaction.customId.startsWith(REQUEST_MODAL_PREFIX)) {
+    if (
+      interaction.isStringSelectMenu() &&
+      interaction.customId.startsWith(COMBO_SELECT_PREFIX)
+    ) {
+      return handleComboSelect(interaction);
+    }
+
+    if (interaction.isButton()) {
+      if (interaction.customId.startsWith(COMBO_GO_PREFIX)) {
+        return handleComboContinue(interaction);
+      }
+      if (interaction.customId.startsWith(COMBO_CANCEL_PREFIX)) {
+        return handleComboCancel(interaction);
+      }
+      return;
+    }
+
+    if (interaction.isModalSubmit()) {
       if (!db.isEnabled()) return dbDisabledReply(interaction);
-      return handleRequestModalSubmit(interaction);
+      if (interaction.customId.startsWith(COMBO_MODAL_PREFIX)) {
+        return handleComboModalSubmit(interaction);
+      }
+      if (interaction.customId.startsWith(REQUEST_MODAL_PREFIX)) {
+        return handleRequestModalSubmit(interaction);
+      }
     }
   } catch (err) {
     console.error("[Interactions] Unhandled error:", err);
