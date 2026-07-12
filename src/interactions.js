@@ -286,15 +286,27 @@ async function handleRequestCommand(interaction) {
   for (const market of requestable) {
     const outcomes = pm.getOutcomes(market);
     const title = market.groupItemTitle || market.question;
+    // The outcome must never be truncated away — it is what tells options apart
+    const buildLabel = (outcome) => {
+      const room = Math.max(20, 100 - (outcome.length + 3));
+      return truncate(`${truncate(title, room)} → ${outcome}`, 100);
+    };
     for (let i = 0; i < outcomes.length; i++) {
       combos.push({
         value: `${market.slug}|${i}`,
         slug: market.slug,
         outcome: outcomes[i],
-        label: `${title} → ${outcomes[i]}`,
+        label: buildLabel(outcomes[i]),
         question: market.question,
       });
     }
+    combos.push({
+      value: `${market.slug}|tie`,
+      slug: market.slug,
+      outcome: pm.TIE_OUTCOME,
+      label: buildLabel(`${pm.TIE_OUTCOME} (P3)`),
+      question: market.question,
+    });
   }
   const shown = combos.slice(0, MAX_COMBO_SELECTS * 25);
 
