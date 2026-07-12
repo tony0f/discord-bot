@@ -63,12 +63,8 @@ async function createRequest({ user, displayName, marketSlug, outcomeInput, evid
       error: "The wallet address is not a valid EVM address (`0x` + 40 hex characters). Leave it empty if you prefer.",
     };
   }
-  if (!/https?:\/\//i.test(evidence)) {
-    return {
-      ok: false,
-      error: "Your evidence must include at least one link (source, article, official page, etc.).",
-    };
-  }
+  // Evidence is optional: proving a negative (e.g. "No — the event never
+  // happened") often has no link to point at.
 
   // 1. User-level gates
   const stats = await getUserStats(user.id);
@@ -173,7 +169,7 @@ async function createRequest({ user, displayName, marketSlug, outcomeInput, evid
         `https://polymarket.com/market/${market.slug}`,
         JSON.stringify(outcomes),
         matchedOutcome,
-        evidence,
+        evidence || "",
         market.endDate ? new Date(market.endDate) : null,
         earlyClaim,
       ],

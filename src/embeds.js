@@ -58,7 +58,9 @@ function buildRequestEmbed(request, { creditWindowHours } = {}) {
     },
     {
       name: "Evidence",
-      value: truncate(request.evidence, 1024),
+      value: request.evidence
+        ? truncate(request.evidence, 1024)
+        : "*None provided — e.g. proving a negative (\"No\")*",
     },
   );
 
@@ -120,18 +122,19 @@ function buildDashboardEmbed(requests, { creditWindowHours }) {
       r.early_claim ? "⚠️" : "",
     ].filter(Boolean).join(" ");
 
-    const evidenceUrls = (r.evidence || "").match(/https?:\/\/[^\s<>()'"]+/g) || [];
-    const evidenceLine =
-      evidenceUrls.length > 0
-        ? `${evidenceUrls[0]}${evidenceUrls.length > 1 ? ` *(+${evidenceUrls.length - 1} more in the card)*` : ""}`
-        : truncate(r.evidence, 150);
-
     const lines = [
       `${statusEmoji} **#${r.id} — [${truncate(r.market_question, 90)}](${r.market_url})** ${badges}`.trimEnd(),
       `> **Propose as:** ${r.requested_outcome}`,
       `> **Requested by:** <@${r.discord_user_id}>`,
-      `> 📎 **Evidence:** ${truncate(evidenceLine, 220)}`,
     ];
+    if (r.evidence) {
+      const evidenceUrls = r.evidence.match(/https?:\/\/[^\s<>()'"]+/g) || [];
+      const evidenceLine =
+        evidenceUrls.length > 0
+          ? `${evidenceUrls[0]}${evidenceUrls.length > 1 ? ` *(+${evidenceUrls.length - 1} more in the card)*` : ""}`
+          : truncate(r.evidence, 150);
+      lines.push(`> 📎 **Evidence:** ${truncate(evidenceLine, 220)}`);
+    }
     if (r.early_claim) {
       lines.push("> ⚠️ *Early resolution — proposable only once the event has occurred*");
     }

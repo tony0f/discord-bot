@@ -119,14 +119,15 @@ function buildRequestModal(interactionId, form, maxSelectable) {
           ),
       ),
     new LabelBuilder()
-      .setLabel("Evidence (must include a link)")
+      .setLabel("Evidence (optional, but links help)")
+      .setDescription('For a "No" the absence of the event can be the proof itself.')
       .setTextInputComponent(
         new TextInputBuilder()
           .setCustomId("evidence")
           .setPlaceholder("Sources proving the outcome, e.g. an X post, article, official page…")
           .setStyle(TextInputStyle.Paragraph)
-          .setMaxLength(1000)
-          .setRequired(true),
+          .setMaxLength(4000)
+          .setRequired(false),
       ),
     new LabelBuilder()
       .setLabel("Your wallet address (optional)")
@@ -244,9 +245,19 @@ async function publishRequestCard(client, request, creditWindowHours) {
     });
     await pr.setRequestMessage(request.id, channel.id, message.id);
     try {
-      await message.startThread({
+      const thread = await message.startThread({
         name: `#${request.id} ${request.market_question}`.slice(0, 100),
       });
+      // The embed field truncates at 1024 chars — post the full evidence
+      // in the discussion thread so nothing is lost.
+      if (request.evidence && request.evidence.length > 1000) {
+        const chunks = request.evidence.match(/[\s\S]{1,1900}/g) || [];
+        for (let i = 0; i < chunks.length; i++) {
+          await thread.send(
+            (i === 0 ? `📎 **Full evidence from <@${request.discord_user_id}>:**\n` : "") + chunks[i],
+          );
+        }
+      }
     } catch (threadErr) {
       console.warn(`[PR] Could not create discussion thread for request #${request.id}:`, threadErr.message);
     }
