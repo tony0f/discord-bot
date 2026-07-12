@@ -18,9 +18,9 @@ Violations trigger an alert in **verifiers-alerts** and a public warning mention
 
 Since almost no OOV2 markets remain, users can no longer build the 5-proposals/95%-accuracy record the whitelist requires. This system replicates that record using **requests**:
 
-1. A user runs **`/request link:<Polymarket URL>`**. The bot queries the Gamma API on the spot and opens a dynamic modal: if the link is an event with brackets (e.g. "What will Elon post this week"), a **dropdown lists only the requestable brackets** (already resolved/proposed/requested ones are hidden) with multi-select support; the outcome is a dropdown too (Yes/No/50-50 or the market's real outcomes). Evidence (optional — proving a "No" often has no link; up to 4000 chars, long evidence is posted in full inside the discussion thread) and an optional wallet complete the form.
+1. A user runs **`/request link:<Polymarket URL>`**. Accepted links: `/event/...`, `/market/...`, and category paths like `/esports/cs2/<league>/<slug>` or `/sports/...` (when a slug names both an event and its moneyline market, the event wins so every bracket is offered). The bot queries the Gamma API on the spot and opens a dynamic modal: if the link is an event with brackets (e.g. "What will Elon post this week"), a **dropdown lists only the requestable brackets** (already resolved/proposed/requested ones are hidden) with multi-select support; the outcome is a dropdown too (Yes/No/50-50 or the market's real outcomes). Evidence (optional — proving a "No" often has no link; up to 4000 chars, long evidence is posted in full inside the discussion thread) and an optional wallet complete the form.
 2. The bot validates the request:
-   * The market exists, is not closed/resolved, and **has no on-chain proposal yet**.
+   * The market exists, is not closed/resolved, and **has no live on-chain proposal** (`proposed`/`reproposed` block; a `challenged`/`disputed` market is requestable again — its proposal was knocked out and a fresh one is needed).
    * The outcome matches the market's outcomes (`Yes`, `No`, team names, `50-50`, `p1`/`p2` shorthand).
    * Nobody else has an active request for the market — **first come, first served**.
    * The user is within their active-requests and daily limits, and hasn't already met the whitelist criteria.

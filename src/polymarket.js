@@ -1,12 +1,9 @@
 const GAMMA_BASE = "https://gamma-api.polymarket.com";
 
-// Gamma umaResolutionStatus values that mean "a proposal exists on-chain"
-const PROPOSED_STATUSES = new Set([
-  "proposed",
-  "reproposed",
-  "challenged",
-  "disputed",
-]);
+// Gamma umaResolutionStatus values that mean a LIVE proposal exists.
+// "challenged"/"disputed" are deliberately NOT here: a disputed proposal is
+// knocked out and the market needs a fresh proposal — prime request material.
+const PROPOSED_STATUSES = new Set(["proposed", "reproposed"]);
 
 const TIE_OUTCOME = "50-50";
 
@@ -37,8 +34,10 @@ async function fetchEventBySlug(slug) {
   return Array.isArray(data) && data.length > 0 ? data[0] : null;
 }
 
-// Accepts polymarket.com/event/<event-slug>[/<market-slug>] and
-// polymarket.com/market/<market-slug> URLs.
+// Accepts /event/<event>[/<market>], /market/<market>, and category paths
+// like /esports/cs2/<league>/<slug> or /sports/... where the last segment
+// is a slug that may name an event, a market, or both (Polymarket reuses
+// the same slug for a series event and its moneyline market).
 function parsePolymarketUrl(rawUrl) {
   let url;
   try {
@@ -53,15 +52,19 @@ function parsePolymarketUrl(rawUrl) {
 
   const kind = segments[0].toLowerCase();
   if (kind === "market") {
-    return { marketSlug: segments[1], eventSlug: null };
+    return { marketSlug: segments[1], eventSlug: null, preferEvent: false };
   }
   if (kind === "event") {
     return {
       marketSlug: segments[2] || null,
       eventSlug: segments[1],
+      preferEvent: !segments[2],
     };
   }
-  return null;
+  // Category path: the last segment is the slug candidate. Prefer the event
+  // so shared event/market slugs surface every bracket, not just moneyline.
+  const last = segments[segments.length - 1];
+  return { marketSlug: last, eventSlug: last, preferEvent: true };
 }
 
 // Resolves a user-provided URL to a single Gamma market object.
@@ -114,43 +117,53 @@ async function resolveLinkForForm(rawUrl) {
   if (!parsed) {
     return {
       error:
-        "That does not look like a valid Polymarket link. Expected `https://polymarket.com/event/...` or `https://polymarket.com/market/...`.",
+        "That does not look like a valid Polymarket link. Paste the URL of a market or event on polymarket.com.",
     };
   }
 
-  // Most specific first: an explicit market slug
-  if (parsed.marketSlug) {
+  const tryMarket = async () => {
+    if (!parsed.marketSlug) return null;
     const market = await fetchMarketBySlug(parsed.marketSlug);
-    if (market) return { type: "market", market };
-  }
+    return market ? { type: "market", market } : null;
+  };
 
-  if (parsed.eventSlug) {
+  const tryEvent = async () => {
+    if (!parsed.eventSlug) return null;
     const event = await fetchEventBySlug(parsed.eventSlug);
-    if (event && Array.isArray(event.markets) && event.markets.length > 0) {
-      const requestable = event.markets.filter(
-        (m) => !m.closed && !hasProposal(m) && !isResolved(m),
-      );
-      if (requestable.length === 0) {
-        return {
-          error:
-            "Every market in that event is already closed, proposed, or resolved — nothing left to request.",
-        };
-      }
-      if (requestable.length === 1) {
-        const market = await fetchMarketBySlug(requestable[0].slug);
-        if (market) return { type: "market", market };
-      }
+    if (!event || !Array.isArray(event.markets) || event.markets.length === 0) {
+      return null;
+    }
+    const requestable = event.markets.filter(
+      (m) => !m.closed && !hasProposal(m) && !isResolved(m),
+    );
+    if (requestable.length === 0) {
       return {
-        type: "event",
-        eventTitle: event.title || parsed.eventSlug,
-        brackets: requestable.map((m) => ({
-          slug: m.slug,
-          title: m.groupItemTitle || m.question,
-          question: m.question,
-          conditionId: m.conditionId || null,
-        })),
+        error:
+          "Every market in that event is already closed, proposed, or resolved — nothing left to request.",
       };
     }
+    if (requestable.length === 1) {
+      const market = await fetchMarketBySlug(requestable[0].slug);
+      if (market) return { type: "market", market };
+    }
+    return {
+      type: "event",
+      eventTitle: event.title || parsed.eventSlug,
+      brackets: requestable.map((m) => ({
+        slug: m.slug,
+        title: m.groupItemTitle || m.question,
+        question: m.question,
+        conditionId: m.conditionId || null,
+      })),
+    };
+  };
+
+  // Shared event/market slugs must surface the whole event (all brackets),
+  // not silently lock onto the moneyline market — hence preferEvent.
+  const lookups = parsed.preferEvent ? [tryEvent, tryMarket] : [tryMarket, tryEvent];
+  for (const lookup of lookups) {
+    const result = await lookup();
+    if (result) return result;
   }
 
   return { error: "Market not found on Polymarket. Please check the link." };
