@@ -119,8 +119,7 @@ function buildRequestModal(interactionId, form, maxSelectable) {
           ),
       ),
     new LabelBuilder()
-      .setLabel("Evidence (optional, but links help)")
-      .setDescription('For a "No" the absence of the event can be the proof itself.')
+      .setLabel("Evidence (optional — links and details help)")
       .setTextInputComponent(
         new TextInputBuilder()
           .setCustomId("evidence")
