@@ -173,8 +173,8 @@ async function handleRequestCommand(interaction) {
   if (stats.qualified) {
     return interaction.reply({
       content:
-        `🎓 You already meet the whitelist criteria (**${stats.settled6m} settled**, **${(stats.accuracy6m * 100).toFixed(1)}%** accuracy). ` +
-        `New requests are closed for you — contact an admin to review your inclusion.`,
+        `🎓 You completed your record (**${stats.settled6m} settled**, **${(stats.accuracy6m * 100).toFixed(1)}%** accuracy in the last 6 months). ` +
+        `New requests are closed for your account.`,
       flags: MessageFlags.Ephemeral,
     });
   }
@@ -548,10 +548,10 @@ async function handleMyStats(interaction) {
       { name: "Expired (no proposal)", value: `${stats.expired}`, inline: true },
       { name: "Total requests", value: `${stats.total}`, inline: true },
       {
-        name: "Whitelist criteria",
+        name: "Progress",
         value: stats.qualified
-          ? "🎓 **You meet the criteria!** Contact an admin to review your inclusion."
-          : `Progress: **${stats.settled6m}/${QUALIFY_MIN_SETTLED}** settled requests with ≥${QUALIFY_MIN_ACCURACY * 100}% accuracy in the last 6 months.`,
+          ? `🎓 **Record complete:** ${stats.settled6m} settled requests with ${(stats.accuracy6m * 100).toFixed(1)}% accuracy in the last 6 months.`
+          : `**${stats.settled6m}/${QUALIFY_MIN_SETTLED}** settled requests with ≥${QUALIFY_MIN_ACCURACY * 100}% accuracy in the last 6 months.`,
       },
     );
   return interaction.editReply({ embeds: [embed] });
@@ -579,7 +579,7 @@ async function handleLeaderboard(interaction) {
     .setColor(0xf39c12)
     .setDescription(lines.join("\n"))
     .setFooter({
-      text: `🎓 = meets whitelist criteria (${QUALIFY_MIN_SETTLED}+ settled, ≥${QUALIFY_MIN_ACCURACY * 100}% accuracy)`,
+      text: `🎓 = ${QUALIFY_MIN_SETTLED}+ settled requests with ≥${QUALIFY_MIN_ACCURACY * 100}% accuracy (last 6 months)`,
     })
     .setTimestamp(new Date());
   return interaction.editReply({ embeds: [embed] });
@@ -763,7 +763,7 @@ async function handleAdmin(interaction) {
         `**Stats for ${user.tag}** (<@${user.id}>)\n` +
         `- Active: **${stats.active}** • Expired: **${stats.expired}** • Total: **${stats.total}**\n` +
         `- Last 6 months: **${stats.correct6m}✅ / ${stats.incorrect6m}❌** — accuracy **${accuracyText}**\n` +
-        `- Meets whitelist criteria: **${stats.qualified ? "YES 🎓" : "no"}**`,
+        `- Record complete (${QUALIFY_MIN_SETTLED}+ settled, ≥${QUALIFY_MIN_ACCURACY * 100}%): **${stats.qualified ? "YES 🎓" : "no"}**`,
     });
   }
 

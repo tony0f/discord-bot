@@ -65,8 +65,8 @@ async function createRequest({ user, displayName, marketSlug, outcomeInput, evid
     return {
       ok: false,
       error:
-        `🎓 You already have **${stats.settled6m} settled requests** with **${(stats.accuracy6m * 100).toFixed(1)}% accuracy** in the last 6 months — you meet the whitelist criteria! ` +
-        `New requests are closed for you; please contact an admin to review your whitelist inclusion.`,
+        `🎓 You completed your record: **${stats.settled6m} settled requests** with **${(stats.accuracy6m * 100).toFixed(1)}% accuracy** in the last 6 months. ` +
+        `New requests are closed for your account.`,
     };
   }
   const maxActive = intSetting(settings, "max_active_per_user");
