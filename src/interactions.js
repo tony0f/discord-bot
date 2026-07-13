@@ -473,6 +473,29 @@ async function handleComboContinue(interaction) {
       flags: MessageFlags.Ephemeral,
     });
   }
+
+  // One outcome per market: block Continue until the selection is coherent
+  const combos = selected.map((v) => session.combos[v]).filter(Boolean);
+  const seenBySlug = new Map();
+  const conflicts = [];
+  for (const combo of combos) {
+    if (seenBySlug.has(combo.slug)) {
+      const first = seenBySlug.get(combo.slug);
+      conflicts.push(`• **${first.label}** ⇄ **${combo.label}**`);
+    } else {
+      seenBySlug.set(combo.slug, combo);
+    }
+  }
+  if (conflicts.length > 0) {
+    return interaction.reply({
+      content: truncate(
+        `⚠️ You picked **more than one outcome for the same market** — a request needs exactly one:\n${conflicts.join("\n")}\n\nDeselect the extras and press **Continue** again.`,
+        2000,
+      ),
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
   return interaction.showModal(buildEvidenceModal(sessionId, selected.length));
 }
 
