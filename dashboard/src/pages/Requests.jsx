@@ -120,7 +120,7 @@ export default function Requests() {
               <tr className="border-b border-edge text-left text-xs text-ink-3">
                 <th className="px-4 py-3 font-medium">#</th>
                 <th className="px-4 py-3 font-medium">Market</th>
-                <th className="px-4 py-3 font-medium">Outcome</th>
+                <th className="px-4 py-3 font-medium">Requested as</th>
                 <th className="px-4 py-3 font-medium">User</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Age</th>
@@ -145,7 +145,14 @@ export default function Requests() {
                         </p>
                       )}
                     </td>
-                    <td className="px-4 py-3 font-medium">{r.requested_outcome}</td>
+                    <td className="px-4 py-3">
+                      <span className="font-medium">{r.requested_outcome}</span>
+                      {r.settled_outcome && (
+                        <p className="mt-0.5 text-xs text-ink-3">
+                          settled: <span style={{ color: r.settled_outcome === r.requested_outcome ? "var(--color-s-correct)" : "var(--color-s-incorrect)" }}>{r.settled_outcome}</span>
+                        </p>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-ink-2">{r.discord_username}</td>
                     <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
                     <td className="whitespace-nowrap px-4 py-3 text-xs text-ink-3">{timeAgo(r.created_at)}</td>
