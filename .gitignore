@@ -5,5 +5,8 @@ bot_config.json
 node_modules/
 dist/
 
+# Generated on Windows; pins win32 native bindings that break Linux builds
+dashboard/package-lock.json
+
 .DS_Store
 *.log
