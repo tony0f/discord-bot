@@ -84,19 +84,6 @@ function evidenceLabel() {
     );
 }
 
-function walletLabel() {
-  return new LabelBuilder()
-    .setLabel("Your wallet address (optional)")
-    .setTextInputComponent(
-      new TextInputBuilder()
-        .setCustomId("wallet")
-        .setPlaceholder("0x… — needed later for whitelist inclusion")
-        .setStyle(TextInputStyle.Short)
-        .setMaxLength(50)
-        .setRequired(false),
-    );
-}
-
 // Single-market flow: one modal with the market's real outcomes + evidence.
 function buildSingleMarketModal(interactionId, market) {
   const outcomeOptions = [...pm.getOutcomes(market), pm.TIE_OUTCOME];
@@ -120,7 +107,6 @@ function buildSingleMarketModal(interactionId, market) {
             ),
         ),
       evidenceLabel(),
-      walletLabel(),
     );
 }
 
@@ -129,7 +115,7 @@ function buildEvidenceModal(sessionId, lineCount) {
   return new ModalBuilder()
     .setCustomId(`${COMBO_MODAL_PREFIX}${sessionId}`)
     .setTitle(`Request ${lineCount} line(s)`)
-    .addLabelComponents(evidenceLabel(), walletLabel());
+    .addLabelComponents(evidenceLabel());
 }
 
 // Event flow, step 1: every requestable line×outcome pair as an option,
@@ -373,7 +359,7 @@ async function publishRequestCard(client, request, creditWindowHours) {
 }
 
 // Shared tail of both flows: create each request, publish cards, summarize.
-async function processRequests(interaction, items, evidence, wallet) {
+async function processRequests(interaction, items, evidence) {
   const settings = await db.getSettings();
   const creditWindowHours = parseInt(settings.credit_window_hours, 10);
 
@@ -386,7 +372,6 @@ async function processRequests(interaction, items, evidence, wallet) {
       marketSlug: item.slug,
       outcomeInput: item.outcome,
       evidence,
-      wallet,
     });
     if (result.ok) {
       created.push(result.request);
@@ -431,13 +416,11 @@ async function handleRequestModalSubmit(interaction) {
 
   const outcome = interaction.fields.getStringSelectValues("outcome")[0];
   const evidence = interaction.fields.getTextInputValue("evidence") || "";
-  const wallet = interaction.fields.getTextInputValue("wallet") || null;
 
   const content = await processRequests(
     interaction,
     [{ slug: form.marketSlug, outcome }],
     evidence,
-    wallet,
   );
   return interaction.editReply({ content });
 }
@@ -518,7 +501,6 @@ async function handleComboModalSubmit(interaction) {
   }
 
   const evidence = interaction.fields.getTextInputValue("evidence") || "";
-  const wallet = interaction.fields.getTextInputValue("wallet") || null;
 
   const raw = Object.values(session.selections)
     .flat()
@@ -538,7 +520,7 @@ async function handleComboModalSubmit(interaction) {
     items.push(combo);
   }
 
-  let content = await processRequests(interaction, items, evidence, wallet);
+  let content = await processRequests(interaction, items, evidence);
   if (conflicts > 0) {
     content = truncate(
       `⚠️ Skipped ${conflicts} selection(s) that conflicted with another outcome for the same market.\n${content}`,

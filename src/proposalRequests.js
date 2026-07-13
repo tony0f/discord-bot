@@ -53,16 +53,9 @@ async function getUserStats(userId) {
 //   { ok: false, error }         — user-facing rejection message
 // The market is re-fetched fresh by slug: state may have changed between the
 // moment the form was shown and the moment it was submitted.
-async function createRequest({ user, displayName, marketSlug, outcomeInput, evidence, wallet }) {
+async function createRequest({ user, displayName, marketSlug, outcomeInput, evidence }) {
   const settings = await db.getSettings();
 
-  // 0. Basic input checks
-  if (wallet && !/^0x[a-fA-F0-9]{40}$/.test(wallet.trim())) {
-    return {
-      ok: false,
-      error: "The wallet address is not a valid EVM address (`0x` + 40 hex characters). Leave it empty if you prefer.",
-    };
-  }
   // Evidence is optional: proving a negative (e.g. "No — the event never
   // happened") often has no link to point at.
 
@@ -161,7 +154,7 @@ async function createRequest({ user, displayName, marketSlug, outcomeInput, evid
         user.id,
         user.username,
         displayName || user.username,
-        wallet ? wallet.trim() : null,
+        null,
         market.slug,
         market.question,
         market.conditionId,
