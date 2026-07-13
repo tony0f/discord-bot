@@ -25,6 +25,8 @@ No build step, test suite, or linter is configured. Node >= 18 required (native 
 
 ```
 index.js                 — client setup, event wiring, startup
+src/webServer.js         — Express API + serves dashboard/dist (admin web dashboard)
+dashboard/               — Vite + React + Tailwind v4 admin dashboard (own package.json)
 src/config.js            — env vars, channel IDs, default settings, thresholds
 src/db.js                — pg pool, schema init, settings key/value store
 src/polymarket.js        — Polymarket URL parsing + Gamma API + outcome matching
@@ -70,6 +72,10 @@ Postgres via `DATABASE_URL` (Railway plugin). Two tables: `settings` (key/value 
 
 `/mystats`, `/leaderboard`, `/pr-admin` (admin: Administrator permission, Risk Labs role, or an ID in `ADMIN_USER_IDS`; hidden from non-admins via default member permissions).
 
+## Web dashboard
+
+Single-service architecture: the bot process also runs an Express server (`src/webServer.js`) on `PORT`, exposing a JSON API (`/api/*`) and serving the built SPA from `dashboard/dist`. Auth is a single admin password (`DASHBOARD_PASSWORD` env) exchanged for a 12h JWT in an httpOnly cookie (`DASHBOARD_SESSION_SECRET` keeps sessions across restarts); login is rate-limited per IP. Admin actions (invalidate, add/clear community warnings, edit settings) reuse the same `proposalRequests.js` functions as the slash commands and sync the Discord card + live board via the watcher. The root `npm run build` builds the dashboard (Railway's Nixpacks runs it automatically); `npm run dev` inside dashboard/ proxies `/api` to :3000. Design system: dark OLED, Fira Sans/Fira Code, status palette validated for dark surfaces (amber/blue/green/red + neutral gray).
+
 ## Deployment
 
-Railway. Restarts are expected: the ER monitor rebuilds its cache on startup, and all proposal-request state lives in Postgres.
+Railway. Restarts are expected: the ER monitor rebuilds its cache on startup, and all proposal-request state lives in Postgres. Required env vars: `DISCORD_TOKEN`, `DATABASE_URL`, `DASHBOARD_PASSWORD` (+ `DASHBOARD_SESSION_SECRET` recommended). The dashboard needs a public domain generated in Railway → service → Settings → Networking.

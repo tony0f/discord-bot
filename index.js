@@ -3,6 +3,7 @@ const { DISCORD_TOKEN } = require("./src/config");
 const db = require("./src/db");
 const disputeMonitor = require("./src/disputeMonitor");
 const watcher = require("./src/watcher");
+const webServer = require("./src/webServer");
 const { handleInteraction } = require("./src/interactions");
 
 const client = new Client({
@@ -32,6 +33,7 @@ client.on("ready", () => {
   setInterval(() => disputeMonitor.cleanupDisputeCache(client), 12 * 60 * 60 * 1000);
 
   watcher.start(client);
+  webServer.start(client);
 });
 
 async function initializeBot() {

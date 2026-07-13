@@ -6,6 +6,8 @@
     "node": ">=18"
   },
   "scripts": {
+    "start": "node index.js",
+    "build": "npm --prefix dashboard install --include=dev && npm --prefix dashboard run build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -13,10 +15,13 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "cookie-parser": "^1.4.7",
     "discord.js": "^14.26.5",
     "dotenv": "^16.5.0",
+    "express": "^5.2.1",
     "google-auth-library": "^9.15.1",
     "google-spreadsheet": "^4.1.4",
+    "jsonwebtoken": "^9.0.3",
     "pg": "^8.13.1"
   }
 }

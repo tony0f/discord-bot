@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Fira Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Fira Code", ui-monospace, monospace;
+
+  /* Dark OLED design system (ui-ux-pro-max) */
+  --color-bg: #070a0f;
+  --color-surface: #0d1320;
+  --color-surface-2: #141c2e;
+  --color-edge: #1e2a40;
+  --color-ink: #e6eaf2;
+  --color-ink-2: #9aa5ba;
+  --color-ink-3: #5f6b82;
+
+  --color-primary: #3b82f6;
+  --color-accent: #d97706;
+
+  /* Status palette — validated for dark surface (dataviz) */
+  --color-s-pending: #d97706;
+  --color-s-proposed: #3b82f6;
+  --color-s-correct: #059669;
+  --color-s-incorrect: #ef4444;
+  --color-s-neutral: #64748b;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-primary) 40%, transparent);
+}
+
+*:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
