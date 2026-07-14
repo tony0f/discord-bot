@@ -134,7 +134,7 @@ export default function Requests() {
                 return (
                   <tr key={r.id} className="border-b border-edge/60 align-top transition-colors last:border-0 hover:bg-surface-2/50">
                     <td className="px-4 py-3 font-mono text-xs tabular-nums text-ink-2">{r.id}</td>
-                    <td className="max-w-sm px-4 py-3">
+                    <td className="max-w-2xl px-4 py-3">
                       <a href={r.market_url} target="_blank" rel="noreferrer" className="group inline-flex items-start gap-1.5 hover:text-primary">
                         <span className="line-clamp-2">{r.market_question}</span>
                         <ExternalLink size={12} className="mt-1 shrink-0 text-ink-3 group-hover:text-primary" aria-hidden />
