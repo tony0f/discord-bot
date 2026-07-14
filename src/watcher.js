@@ -1,5 +1,6 @@
 const db = require("./db");
 const pm = require("./polymarket");
+const tp = require("./threepo");
 const pr = require("./proposalRequests");
 const { buildRequestEmbed, buildDashboardEmbed } = require("./embeds");
 const { PROPOSAL_REQUESTS_CHANNEL_ID } = require("./config");
@@ -9,6 +10,42 @@ const logPrefix = "[PR Watcher]";
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function isBinaryYesNo(request) {
+  try {
+    const outcomes = JSON.parse(request.outcomes || "[]").map((o) => String(o).toLowerCase());
+    return outcomes.length === 2 && outcomes.includes("yes") && outcomes.includes("no");
+  } catch {
+    return false;
+  }
+}
+
+// 3PO maps p-values to Yes/No, which is only trustworthy for binary Yes/No
+// markets. For named outcomes (teams, Over/Under) keep the raw p-value unless
+// 3PO decoded the actual name.
+function labelForRequest(request, tpLabel) {
+  if (!tpLabel) return null;
+  if (tpLabel === tp.TIE_OUTCOME) return tpLabel;
+  if (tpLabel !== "Yes" && tpLabel !== "No") return tpLabel; // decoded name
+  if (isBinaryYesNo(request)) return tpLabel;
+  return tpLabel === "Yes" ? "p2" : "p1";
+}
+
+// Final winner as a name comparable to requested_outcome. Named-outcome
+// Polymarket markets fall back to Gamma's snapped prices.
+async function resolveWinner(request, res) {
+  const label = labelForRequest(request, res.settledOutcome);
+  if (label && label !== "p1" && label !== "p2") return label;
+  if (request.creation_source !== "predict.fun") {
+    try {
+      const gamma = await pm.fetchMarketBySlug(request.market_slug);
+      if (gamma && pm.isResolved(gamma)) return pm.getWinningOutcome(gamma);
+    } catch (err) {
+      console.warn(`${logPrefix} Gamma winner fallback failed for #${request.id}:`, err.message);
+    }
+  }
+  return null; // indeterminate — retry next cycle
 }
 
 async function editRequestMessage(client, request) {
@@ -107,25 +144,22 @@ async function runCycle(client) {
       await editRequestMessage(client, request);
     }
 
-    // 2. Check market state for every active request.
+    // 2. Check market state for every active request via 3PO.
     const active = await pr.listActiveRequests();
     for (const request of active) {
       let market;
       try {
-        market = await pm.fetchMarketBySlug(request.market_slug);
+        market = await tp.getMarket(request.question_id || request.market_slug);
       } catch (err) {
-        console.warn(`${logPrefix} Gamma error for ${request.market_slug}:`, err.message);
+        console.warn(`${logPrefix} 3PO error for #${request.id} (${request.market_slug}):`, err.message);
         continue;
       }
-      if (!market) {
-        console.warn(`${logPrefix} Market ${request.market_slug} not found on Gamma (request #${request.id}).`);
-        continue;
-      }
+      const res = tp.extractResolution(market);
 
-      if (pm.isResolved(market)) {
-        const winner = pm.getWinningOutcome(market);
+      if (res.settled) {
+        const winner = await resolveWinner(request, res);
         if (!winner) {
-          console.warn(`${logPrefix} Request #${request.id}: market resolved but winner indeterminate. Will retry.`);
+          console.warn(`${logPrefix} Request #${request.id}: settled but winner indeterminate. Will retry.`);
           continue;
         }
         const correct = winner === request.requested_outcome;
@@ -140,27 +174,32 @@ async function runCycle(client) {
         );
         await editRequestMessage(client, updated);
         await notifyResult(client, updated);
-      } else if (pm.hasProposal(market)) {
-        if (request.status === "pending") {
+      } else if (tp.hasLiveProposal(res.status)) {
+        const proposedOutcome = labelForRequest(request, res.proposedOutcome);
+        if (request.status === "pending" || request.proposed_outcome !== proposedOutcome) {
           const updated = await pr.updateRequestStatus(request.id, {
             status: "proposed",
-            proposed_at: new Date(),
+            proposed_at: request.proposed_at || new Date(),
+            proposed_outcome: proposedOutcome,
           });
-          console.log(`${logPrefix} Request #${request.id} marked as proposed (${market.umaResolutionStatus}).`);
+          console.log(
+            `${logPrefix} Request #${request.id} proposed as "${proposedOutcome}" (requested "${request.requested_outcome}").`,
+          );
           await editRequestMessage(client, updated);
         }
       } else if (request.status === "proposed") {
-        // The proposal disappeared (e.g. disputed as too-early and reset).
-        // Revert to pending; the window keeps counting from created_at.
+        // Proposal knocked out (disputed / extended review) — a fresh proposal
+        // is needed. Revert; the window keeps counting from created_at.
         const updated = await pr.updateRequestStatus(request.id, {
           status: "pending",
           proposed_at: null,
+          proposed_outcome: null,
         });
-        console.log(`${logPrefix} Request #${request.id} proposal was reset on-chain. Reverted to pending.`);
+        console.log(`${logPrefix} Request #${request.id} proposal knocked out (${res.status}). Reverted to pending.`);
         await editRequestMessage(client, updated);
       }
 
-      await sleep(300); // be gentle with the Gamma API
+      await sleep(300); // be gentle with the API
     }
 
     // 3. Refresh the live board.

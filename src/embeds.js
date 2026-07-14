@@ -79,6 +79,15 @@ function buildRequestEmbed(request, { creditWindowHours, reports = [] } = {}) {
     },
   );
 
+  if (request.status === "proposed" && request.proposed_outcome) {
+    const matches = request.proposed_outcome === request.requested_outcome;
+    embed.addFields({
+      name: "On-chain proposal",
+      value: `**${request.proposed_outcome}** ${matches ? "✅ *matches the request*" : "⚠️ *does NOT match the request*"}`,
+      inline: true,
+    });
+  }
+
   embed.setFooter({
     text: `Request #${request.id}${creditWindowHours ? ` • credit window: ${creditWindowHours}h` : ""} • DYOR before proposing`,
   });
@@ -157,6 +166,11 @@ function buildDashboardEmbed(requests, { creditWindowHours, reportsMap = {} }) {
         new Date(new Date(r.created_at).getTime() + creditWindowHours * 3600 * 1000),
       );
       lines.push(`> ⏱️ Expires <t:${expiresAt}:R>`);
+    } else if (r.proposed_outcome) {
+      const matches = r.proposed_outcome === r.requested_outcome;
+      lines.push(
+        `> 📤 Proposed as **${r.proposed_outcome}** ${matches ? "✅ matches" : "⚠️ differs"} — awaiting settlement`,
+      );
     } else {
       lines.push("> 📤 Proposed — awaiting settlement");
     }

@@ -86,7 +86,7 @@ function evidenceLabel() {
 
 // Single-market flow: one modal with the market's real outcomes + evidence.
 function buildSingleMarketModal(interactionId, market) {
-  const outcomeOptions = [...pm.getOutcomes(market), pm.TIE_OUTCOME];
+  const outcomeOptions = [...(market.outcomes || ["Yes", "No"]), pm.TIE_OUTCOME];
   return new ModalBuilder()
     .setCustomId(`${REQUEST_MODAL_PREFIX}${interactionId}`)
     .setTitle("Request a market proposal")
@@ -208,47 +208,23 @@ async function handleRequestCommand(interaction) {
   }
 
   // --- Single-market flow: straight to the modal (cannot defer showModal) ---
+  // resolveLinkForForm only returns requestable markets, so no extra gates.
   if (form.type === "market") {
-    if (pm.isResolved(form.market) || form.market.closed) {
-      return interaction.reply({
-        content: `❌ **${form.market.question}** is already resolved/closed.`,
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-    if (pm.hasProposal(form.market)) {
-      return interaction.reply({
-        content: `❌ **${form.market.question}** already has an on-chain proposal (\`${form.market.umaResolutionStatus}\`).`,
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-
     pruneForms();
     pendingForms.set(interaction.id, {
       kind: "market",
       marketSlug: form.market.slug,
+      sourceUrl: link,
       createdAt: Date.now(),
     });
     return interaction.showModal(buildSingleMarketModal(interaction.id, form.market));
   }
 
-  // --- Event flow: line×outcome pickers. A normal reply CAN be deferred, so
-  // there is time to re-verify every bracket with fresh full-market data
-  // (the event endpoint's nested statuses can be stale). ---
+  // --- Event flow: line×outcome pickers. Brackets come fresh from the 3PO
+  // search; enrich Polymarket ones with real outcome names via Gamma. ---
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  let freshMarkets;
-  try {
-    freshMarkets = await pm.fetchMarketsBySlugs(form.brackets.map((b) => b.slug));
-  } catch (err) {
-    console.warn("[PR] Bulk market fetch failed:", err.message);
-    return interaction.editReply({
-      content: "❌ The Polymarket API failed while loading the event's markets. Please try again.",
-    });
-  }
-
-  let requestable = freshMarkets.filter(
-    (m) => !m.closed && !pm.isResolved(m) && !pm.hasProposal(m),
-  );
+  let requestable = form.brackets;
 
   // Hide markets that already have an active request (first come, first served)
   try {
@@ -256,7 +232,7 @@ async function handleRequestCommand(interaction) {
       `SELECT condition_id FROM proposal_requests WHERE status IN ('pending','proposed')`,
     );
     const taken = new Set(active.rows.map((r) => r.condition_id));
-    requestable = requestable.filter((m) => !taken.has(m.conditionId));
+    requestable = requestable.filter((b) => !taken.has(b.conditionId));
   } catch {
     /* non-fatal: createRequest dedupes anyway */
   }
@@ -264,14 +240,29 @@ async function handleRequestCommand(interaction) {
   if (requestable.length === 0) {
     return interaction.editReply({
       content:
-        "❌ Every market in that event is already proposed, resolved, or has an active request — nothing left to request.",
+        "❌ Every market in that event is already proposed, settled, or has an active request — nothing left to request.",
     });
   }
 
+  // Outcome names: bulk Gamma lookup for Polymarket brackets (team names,
+  // Over/Under, bracket short titles); Predict.fun markets are binary.
+  const gammaBySlug = new Map();
+  const pmSlugs = requestable.filter((b) => b.creationSource === "polymarket").map((b) => b.slug);
+  if (pmSlugs.length > 0) {
+    try {
+      for (const g of await pm.fetchMarketsBySlugs(pmSlugs)) gammaBySlug.set(g.slug, g);
+    } catch (err) {
+      console.warn("[PR] Gamma bulk outcome lookup failed:", err.message);
+    }
+  }
+
   const combos = [];
-  for (const market of requestable) {
-    const outcomes = pm.getOutcomes(market);
-    const title = market.groupItemTitle || market.question;
+  for (const bracket of requestable) {
+    const gamma = gammaBySlug.get(bracket.slug);
+    const gammaOutcomes = gamma ? pm.getOutcomes(gamma) : [];
+    const outcomes = gammaOutcomes.length > 0 ? gammaOutcomes : ["Yes", "No"];
+    const market = { slug: bracket.slug, question: bracket.title };
+    const title = gamma?.groupItemTitle || bracket.title;
     // The outcome must never be truncated away — it is what tells options apart
     const buildLabel = (outcome) => {
       const room = Math.max(20, 100 - (outcome.length + 3));
@@ -301,6 +292,7 @@ async function handleRequestCommand(interaction) {
     kind: "combo",
     combos: Object.fromEntries(shown.map((c) => [c.value, c])),
     selections: {},
+    sourceUrl: link,
     createdAt: Date.now(),
   });
 
@@ -359,7 +351,7 @@ async function publishRequestCard(client, request, creditWindowHours) {
 }
 
 // Shared tail of both flows: create each request, publish cards, summarize.
-async function processRequests(interaction, items, evidence) {
+async function processRequests(interaction, items, evidence, sourceUrl) {
   const settings = await db.getSettings();
   const creditWindowHours = parseInt(settings.credit_window_hours, 10);
 
@@ -372,6 +364,7 @@ async function processRequests(interaction, items, evidence) {
       marketSlug: item.slug,
       outcomeInput: item.outcome,
       evidence,
+      fallbackUrl: sourceUrl,
     });
     if (result.ok) {
       created.push(result.request);
@@ -421,6 +414,7 @@ async function handleRequestModalSubmit(interaction) {
     interaction,
     [{ slug: form.marketSlug, outcome }],
     evidence,
+    form.sourceUrl,
   );
   return interaction.editReply({ content });
 }
@@ -520,7 +514,7 @@ async function handleComboModalSubmit(interaction) {
     items.push(combo);
   }
 
-  let content = await processRequests(interaction, items, evidence);
+  let content = await processRequests(interaction, items, evidence, session.sourceUrl);
   if (conflicts > 0) {
     content = truncate(
       `⚠️ Skipped ${conflicts} selection(s) that conflicted with another outcome for the same market.\n${content}`,

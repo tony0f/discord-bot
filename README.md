@@ -18,7 +18,7 @@ Violations trigger an alert in **verifiers-alerts** and a public warning mention
 
 Since almost no OOV2 markets remain, users can no longer build the 5-proposals/95%-accuracy record the whitelist requires. This system replicates that record using **requests**:
 
-1. A user runs **`/request link:<Polymarket URL>`**. Accepted links: `/event/...`, `/market/...`, and category paths like `/esports/cs2/<league>/<slug>` or `/sports/...` (when a slug names both an event and its moneyline market, the event wins so every line is offered).
+1. A user runs **`/request link:<URL>`** with a **Polymarket or Predict.fun** link (market, event, or category paths). Market state is resolved through UMA's **3PO API**, which also reports the on-chain **proposed outcome** while a proposal is live — cards and the dashboard show whether it matches the request before settlement. Disputed markets are requestable again (their proposal was knocked out).
    * **Single market link** → a modal with the market's real outcomes as a dropdown (+50-50) and optional evidence.
    * **Event link** → an ephemeral picker with every requestable **line → outcome** pair as options ("Map 2 Winner → MOUZ NXT", "O/U 2.5 → Under"…), spread over up to 4 multi-selects (100 options max). Each bracket's live state is re-verified with fresh market data before being offered (nested event statuses can be stale). Pick any combination — each line with its own outcome — then **Continue** opens the evidence modal. Evidence is optional (up to 4000 chars; long evidence is posted in full under the card).
 2. The bot validates the request:

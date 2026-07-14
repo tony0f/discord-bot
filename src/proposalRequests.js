@@ -1,5 +1,6 @@
 const db = require("./db");
 const pm = require("./polymarket");
+const tp = require("./threepo");
 const { QUALIFY_MIN_SETTLED, QUALIFY_MIN_ACCURACY } = require("./config");
 
 const ACTIVE_STATUSES = ["pending", "proposed"];
@@ -53,7 +54,9 @@ async function getUserStats(userId) {
 //   { ok: false, error }         — user-facing rejection message
 // The market is re-fetched fresh by slug: state may have changed between the
 // moment the form was shown and the moment it was submitted.
-async function createRequest({ user, displayName, marketSlug, outcomeInput, evidence }) {
+// `fallbackUrl` is the URL the user shared, used as the card link for
+// non-Polymarket sources (Predict.fun).
+async function createRequest({ user, displayName, marketSlug, outcomeInput, evidence, fallbackUrl }) {
   const settings = await db.getSettings();
 
   // Evidence is optional: proving a negative (e.g. "No — the event never
@@ -84,37 +87,38 @@ async function createRequest({ user, displayName, marketSlug, outcomeInput, evid
     };
   }
 
-  // 2. Fetch the market fresh from Polymarket
-  let market;
+  // 2. Fetch fresh state from 3PO
+  let item;
   try {
-    market = await pm.fetchMarketBySlug(marketSlug);
+    const items = await tp.searchMarkets({ marketSlug });
+    item = items[0] || null;
   } catch (err) {
-    console.error("[PR] Gamma API error:", err.message);
+    console.error("[PR] 3PO API error:", err.message);
     return {
       ok: false,
-      error: "Could not reach the Polymarket API right now. Please try again in a few minutes.",
+      error: "Could not reach the market API right now. Please try again in a few minutes.",
     };
   }
-  if (!market) {
-    return { ok: false, error: "Market not found on Polymarket. Please check the link." };
+  if (!item) {
+    return { ok: false, error: "Market not found. Please check the link." };
   }
 
   // 3. Market-state gates
-  if (pm.isResolved(market) || market.closed) {
+  if (tp.isSettled(item.status)) {
     return {
       ok: false,
-      error: `**${market.question}** is already resolved/closed. Nothing to request here.`,
+      error: `**${item.title}** is already settled. Nothing to request here.`,
     };
   }
-  if (pm.hasProposal(market)) {
+  if (tp.hasLiveProposal(item.status)) {
     return {
       ok: false,
-      error: `**${market.question}** already has an on-chain proposal (status: \`${market.umaResolutionStatus}\`). Requests must arrive **before** the proposal to count as signal.`,
+      error: `**${item.title}** already has a live on-chain proposal. Requests must arrive **before** the proposal to count as signal.`,
     };
   }
 
   // 4. Outcome matching
-  const outcomes = pm.getOutcomes(market);
+  const { outcomes } = await pm.outcomesForItem(item);
   const matchedOutcome = pm.matchOutcome(outcomeInput, outcomes);
   if (!matchedOutcome) {
     return {
@@ -130,7 +134,7 @@ async function createRequest({ user, displayName, marketSlug, outcomeInput, evid
     `SELECT id, discord_username FROM proposal_requests
      WHERE condition_id = $1 AND status = ANY($2)
      LIMIT 1`,
-    [market.conditionId, ACTIVE_STATUSES],
+    [item.condition_id, ACTIVE_STATUSES],
   );
   if (dupe.rows.length > 0) {
     return {
@@ -139,7 +143,14 @@ async function createRequest({ user, displayName, marketSlug, outcomeInput, evid
     };
   }
 
-  const earlyClaim = pm.isEarlyClaim(market);
+  const source = item.creation_source || "polymarket";
+  const earlyClaim = item.end_time
+    ? new Date(item.end_time).getTime() > Date.now()
+    : false;
+  const marketUrl =
+    source === "polymarket"
+      ? `https://polymarket.com/market/${item.market_slug}`
+      : fallbackUrl || `https://predict.fun/`;
 
   // 6. Insert
   try {
@@ -147,27 +158,28 @@ async function createRequest({ user, displayName, marketSlug, outcomeInput, evid
       `INSERT INTO proposal_requests
         (discord_user_id, discord_username, discord_display_name, wallet_address,
          market_slug, market_question, condition_id, question_id, market_url,
-         outcomes, requested_outcome, evidence, end_date, early_claim)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         outcomes, requested_outcome, evidence, end_date, early_claim, creation_source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        RETURNING *`,
       [
         user.id,
         user.username,
         displayName || user.username,
         null,
-        market.slug,
-        market.question,
-        market.conditionId,
-        market.questionID || null,
-        `https://polymarket.com/market/${market.slug}`,
+        item.market_slug,
+        item.title,
+        item.condition_id,
+        item.question_id || null,
+        marketUrl,
         JSON.stringify(outcomes),
         matchedOutcome,
         evidence || "",
-        market.endDate ? new Date(market.endDate) : null,
+        item.end_time ? new Date(item.end_time) : null,
         earlyClaim,
+        source,
       ],
     );
-    return { ok: true, request: insert.rows[0], market };
+    return { ok: true, request: insert.rows[0], market: item };
   } catch (err) {
     if (err.code === "23505") {
       // unique_violation on the partial index — someone won the race

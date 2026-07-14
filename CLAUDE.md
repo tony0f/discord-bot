@@ -50,6 +50,10 @@ Validation gates (src/proposalRequests.js `createRequest`): user not already qua
 
 Key anti-abuse mechanic: the **credit window** (default 24h, `/pr-admin set_credit_window`). A request only counts if a proposal lands within the window; too-early (P4) or junk requests simply expire with no credit. Early claims (market end time still in the future) are allowed but flagged `early_claim`.
 
+### Market data sources
+
+Market STATE comes from **3PO** (`https://api.3po.dev`, `src/threepo.js`, optional `THREEPO_API_TOKEN` Bearer): `/search` by exact `market_slugs`/`event_slugs` (filters are ANDed — query them separately, event first when a slug is shared) and `/market/{question_id}` whose `resolution.request_lifecycle` exposes the **proposed outcome per cycle** (p1=No, p2=Yes, p3=50-50). Statuses: `live`/`disputed`/`extended_review` are requestable, `proposed` blocks, `settled` resolves. Covers Polymarket AND Predict.fun (`creation_source`, stored per request, shown as "Integration" in the dashboard). Gamma remains only for outcome NAMES on Polymarket markets (team names, brackets' `groupItemTitle`) and as the settled-winner fallback for non-binary markets; p-value labels are never trusted for named-outcome markets (kept as raw `p1`/`p2` instead).
+
 ### Gamma API notes (verified against the live API)
 
 - `umaResolutionStatus`: `""` → no proposal, `"proposed"`/`"challenged"`/`"reproposed"`/`"disputed"` → proposal exists, `"resolved"` → settled.

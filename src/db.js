@@ -89,6 +89,13 @@ async function createSchema() {
       ADD COLUMN IF NOT EXISTS flagged_at TIMESTAMPTZ;
   `);
 
+  // 3PO integration fields: market origin + live proposal outcome
+  await pool.query(`
+    ALTER TABLE proposal_requests
+      ADD COLUMN IF NOT EXISTS creation_source TEXT,
+      ADD COLUMN IF NOT EXISTS proposed_outcome TEXT;
+  `);
+
   // Community warnings: many per request, at most one per reporter
   await pool.query(`
     CREATE TABLE IF NOT EXISTS request_reports (
