@@ -572,9 +572,6 @@ async function handleLeaderboard(interaction) {
     .setTitle("🏆 Proposal Requests — leaderboard (last 6 months)")
     .setColor(0xf39c12)
     .setDescription(lines.join("\n"))
-    .setFooter({
-      text: `🎓 = ${QUALIFY_MIN_SETTLED}+ settled requests with ≥${QUALIFY_MIN_ACCURACY * 100}% accuracy (last 6 months)`,
-    })
     .setTimestamp(new Date());
   return interaction.editReply({ embeds: [embed] });
 }
