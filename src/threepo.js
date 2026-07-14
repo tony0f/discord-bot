@@ -47,12 +47,24 @@ function isRequestable(status) {
   return ["live", "disputed", "extended_review"].includes(status);
 }
 
+// 3PO's *_decoded fields sometimes contain the whole res_data mapping
+// sentence ("No, p2 to Yes, p3 to unknown. This request MUST only resolve
+// to p1 or p2") instead of a clean label. Only trust short, label-like
+// strings (team names, Over/Under...).
+function cleanDecoded(decoded) {
+  if (!decoded) return null;
+  const d = String(decoded).trim();
+  if (d.length === 0 || d.length > 48) return null;
+  if (/[.\n]/.test(d) || /\bp[123]\b/i.test(d)) return null;
+  return d;
+}
+
 // Maps a p-value ("p1"/"p2"/"p3") or scaled value to a human outcome label.
 // Binary Polymarket/Predict.fun markets follow the YES_OR_NO convention:
-// p1 = No, p2 = Yes, p3 = 50-50. `decoded` (when 3PO provides it, e.g. team
-// names) always wins.
+// p1 = No, p2 = Yes, p3 = 50-50. A clean `decoded` (e.g. a team name) wins.
 function outcomeLabel({ pValue, decoded, valueScaled }) {
-  if (decoded) return decoded;
+  const clean = cleanDecoded(decoded);
+  if (clean) return clean;
   const p =
     pValue ||
     (valueScaled === 1000000000000000000 || valueScaled === "1000000000000000000"
