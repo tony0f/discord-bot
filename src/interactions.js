@@ -170,14 +170,6 @@ async function handleRequestCommand(interaction) {
   const settings = await db.getSettings();
   const stats = await pr.getUserStats(interaction.user.id);
 
-  if (stats.qualified) {
-    return interaction.reply({
-      content:
-        `🎓 You completed your record (**${stats.settled6m} settled**, **${(stats.accuracy6m * 100).toFixed(1)}%** accuracy in the last 6 months). ` +
-        `New requests are closed for your account.`,
-      flags: MessageFlags.Ephemeral,
-    });
-  }
   const maxActive = parseInt(settings.max_active_per_user, 10);
   if (stats.active >= maxActive) {
     return interaction.reply({

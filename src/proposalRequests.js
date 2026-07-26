@@ -64,14 +64,6 @@ async function createRequest({ user, displayName, marketSlug, outcomeInput, evid
 
   // 1. User-level gates
   const stats = await getUserStats(user.id);
-  if (stats.qualified) {
-    return {
-      ok: false,
-      error:
-        `🎓 You completed your record: **${stats.settled6m} settled requests** with **${(stats.accuracy6m * 100).toFixed(1)}% accuracy** in the last 6 months. ` +
-        `New requests are closed for your account.`,
-    };
-  }
   const maxActive = intSetting(settings, "max_active_per_user");
   if (stats.active >= maxActive) {
     return {
