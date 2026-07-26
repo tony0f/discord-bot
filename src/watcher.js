@@ -128,6 +128,34 @@ async function runCycle(client) {
     const settings = await db.getSettings();
     const creditWindowHours = parseInt(settings.credit_window_hours, 10);
 
+    // 0. Repair tie settlements once mislabeled by verbose 3PO decoded labels
+    //    ("unknown/50-50" !== "50-50"). Idempotent: matches nothing once clean.
+    const repaired = await db.query(
+      `UPDATE proposal_requests
+       SET status = 'settled_correct', settled_outcome = '50-50', updated_at = now()
+       WHERE status = 'settled_incorrect'
+         AND requested_outcome = '50-50'
+         AND (settled_outcome ILIKE '%50-50%' OR settled_outcome ILIKE '%50/50%'
+              OR settled_outcome ILIKE 'unknown%' OR settled_outcome ILIKE 'tie%')
+       RETURNING *`,
+    );
+    for (const request of repaired.rows) {
+      console.log(`${logPrefix} Repaired mislabeled tie settlement on request #${request.id}.`);
+      await editRequestMessage(client, request);
+      try {
+        const channel = await client.channels.fetch(PROPOSAL_REQUESTS_CHANNEL_ID);
+        const payload = {
+          content: `✅ **Correction:** request **#${request.id}** by <@${request.discord_user_id}> settled exactly as requested (**50-50**) — the earlier "incorrect" verdict was a labeling bug on our side. Credited to their record.`,
+        };
+        if (request.message_id) {
+          payload.reply = { messageReference: request.message_id, failIfNotExists: false };
+        }
+        await channel.send(payload);
+      } catch (err) {
+        console.warn(`${logPrefix} Could not announce repair for #${request.id}:`, err.message);
+      }
+    }
+
     // 1. Expire pending requests whose credit window has passed.
     //    This runs BEFORE market checks, so a request can never be credited
     //    for a proposal that arrived after its window.

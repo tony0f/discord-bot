@@ -61,10 +61,11 @@ function cleanDecoded(decoded) {
 
 // Maps a p-value ("p1"/"p2"/"p3") or scaled value to a human outcome label.
 // Binary Polymarket/Predict.fun markets follow the YES_OR_NO convention:
-// p1 = No, p2 = Yes, p3 = 50-50. A clean `decoded` (e.g. a team name) wins.
+// p1 = No, p2 = Yes, p3 = 50-50. A clean `decoded` (e.g. a team name) wins
+// for p1/p2; p3 is ALWAYS the canonical tie label — markets word it in many
+// ways ("unknown/50-50", "unknown", "tie") and comparisons must not depend
+// on that wording.
 function outcomeLabel({ pValue, decoded, valueScaled }) {
-  const clean = cleanDecoded(decoded);
-  if (clean) return clean;
   const p =
     pValue ||
     (valueScaled === 1000000000000000000 || valueScaled === "1000000000000000000"
@@ -74,9 +75,18 @@ function outcomeLabel({ pValue, decoded, valueScaled }) {
         : valueScaled === 500000000000000000 || valueScaled === "500000000000000000"
           ? "p3"
           : null);
+  if (p === "p3") return TIE_OUTCOME;
+
+  const clean = cleanDecoded(decoded);
+  if (clean) {
+    // Normalize tie spellings that arrive as decoded text
+    if (/(^|\b)(unknown|tie)(\b|$)/i.test(clean) || /50\s*[-/]\s*50/.test(clean)) {
+      return TIE_OUTCOME;
+    }
+    return clean;
+  }
   if (p === "p1") return "No";
   if (p === "p2") return "Yes";
-  if (p === "p3") return TIE_OUTCOME;
   return null;
 }
 
