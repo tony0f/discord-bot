@@ -88,6 +88,19 @@ function buildRequestEmbed(request, { creditWindowHours, reports = [] } = {}) {
     });
   }
 
+  if (request.propose_tx) {
+    const explorer =
+      request.creation_source === "predict.fun"
+        ? "https://blastscan.io"
+        : "https://polygonscan.com";
+    let value = `[\`${request.propose_tx.slice(0, 10)}…${request.propose_tx.slice(-6)}\`](${explorer}/tx/${request.propose_tx})`;
+    if (request.proposer_address) {
+      const a = request.proposer_address;
+      value += `\nProposer: [\`${a.slice(0, 6)}…${a.slice(-4)}\`](${explorer}/address/${a})`;
+    }
+    embed.addFields({ name: "Proposal tx", value, inline: true });
+  }
+
   embed.setFooter({
     text: `Request #${request.id}${creditWindowHours ? ` • credit window: ${creditWindowHours}h` : ""} • DYOR before proposing`,
   });

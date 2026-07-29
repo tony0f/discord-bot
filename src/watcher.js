@@ -4,6 +4,7 @@ const tp = require("./threepo");
 const pr = require("./proposalRequests");
 const { buildRequestEmbed, buildDashboardEmbed } = require("./embeds");
 const { PROPOSAL_REQUESTS_CHANNEL_ID } = require("./config");
+const onchain = require("./onchain");
 
 let isCycleRunning = false;
 const logPrefix = "[PR Watcher]";
@@ -191,12 +192,19 @@ async function runCycle(client) {
           continue;
         }
         const correct = winner === request.requested_outcome;
-        const updated = await pr.updateRequestStatus(request.id, {
+        const fields = {
           status: correct ? "settled_correct" : "settled_incorrect",
           settled_at: new Date(),
           settled_outcome: winner,
           proposed_at: request.proposed_at || new Date(),
-        });
+        };
+        // Capture the proposal tx/wallet if the request skipped the proposed
+        // state between polls
+        if (res.proposeTx && res.proposeTx !== request.propose_tx) {
+          fields.propose_tx = res.proposeTx;
+          fields.proposer_address = await onchain.getTxSender(res.proposeTx, request.creation_source);
+        }
+        const updated = await pr.updateRequestStatus(request.id, fields);
         console.log(
           `${logPrefix} Request #${request.id} settled ${correct ? "CORRECT" : "INCORRECT"} (winner: ${winner}).`,
         );
@@ -204,12 +212,22 @@ async function runCycle(client) {
         await notifyResult(client, updated);
       } else if (tp.hasLiveProposal(res.status)) {
         const proposedOutcome = labelForRequest(request, res.proposedOutcome);
-        if (request.status === "pending" || request.proposed_outcome !== proposedOutcome) {
-          const updated = await pr.updateRequestStatus(request.id, {
+        const txChanged = res.proposeTx && res.proposeTx !== request.propose_tx;
+        if (
+          request.status === "pending" ||
+          request.proposed_outcome !== proposedOutcome ||
+          txChanged
+        ) {
+          const fields = {
             status: "proposed",
             proposed_at: request.proposed_at || new Date(),
             proposed_outcome: proposedOutcome,
-          });
+          };
+          if (txChanged) {
+            fields.propose_tx = res.proposeTx;
+            fields.proposer_address = await onchain.getTxSender(res.proposeTx, request.creation_source);
+          }
+          const updated = await pr.updateRequestStatus(request.id, fields);
           console.log(
             `${logPrefix} Request #${request.id} proposed as "${proposedOutcome}" (requested "${request.requested_outcome}").`,
           );
@@ -222,6 +240,8 @@ async function runCycle(client) {
           status: "pending",
           proposed_at: null,
           proposed_outcome: null,
+          propose_tx: null,
+          proposer_address: null,
         });
         console.log(`${logPrefix} Request #${request.id} proposal knocked out (${res.status}). Reverted to pending.`);
         await editRequestMessage(client, updated);

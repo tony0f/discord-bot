@@ -93,7 +93,9 @@ async function createSchema() {
   await pool.query(`
     ALTER TABLE proposal_requests
       ADD COLUMN IF NOT EXISTS creation_source TEXT,
-      ADD COLUMN IF NOT EXISTS proposed_outcome TEXT;
+      ADD COLUMN IF NOT EXISTS proposed_outcome TEXT,
+      ADD COLUMN IF NOT EXISTS propose_tx TEXT,
+      ADD COLUMN IF NOT EXISTS proposer_address TEXT;
   `);
 
   // Community warnings: many per request, at most one per reporter

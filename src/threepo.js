@@ -116,6 +116,7 @@ function extractResolution(market) {
     settled: !!resolution.settled,
     proposedOutcome,
     settledOutcome,
+    proposeTx: latest ? latest.propose_tx || null : null,
     explorerLink: resolution.oracle_explorer_link || null,
   };
 }
