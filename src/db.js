@@ -95,7 +95,8 @@ async function createSchema() {
       ADD COLUMN IF NOT EXISTS creation_source TEXT,
       ADD COLUMN IF NOT EXISTS proposed_outcome TEXT,
       ADD COLUMN IF NOT EXISTS propose_tx TEXT,
-      ADD COLUMN IF NOT EXISTS proposer_address TEXT;
+      ADD COLUMN IF NOT EXISTS proposer_address TEXT,
+      ADD COLUMN IF NOT EXISTS evidence_message_ids TEXT;
   `);
 
   // Community warnings: many per request, at most one per reporter

@@ -20,8 +20,13 @@ export const api = {
   me: () => request("/api/me"),
   overview: () => request("/api/overview"),
   requests: (params) => request(`/api/requests?${new URLSearchParams(params)}`),
-  invalidate: (id, reason) =>
-    request(`/api/requests/${id}/invalidate`, { method: "POST", body: { reason } }),
+  invalidate: (id, reason, deleteMessages) =>
+    request(`/api/requests/${id}/invalidate`, {
+      method: "POST",
+      body: { reason, deleteMessages },
+    }),
+  approveCredit: (id) =>
+    request(`/api/requests/${id}/approve-credit`, { method: "POST" }),
   addWarning: (id, reason) =>
     request(`/api/requests/${id}/warnings`, { method: "POST", body: { reason } }),
   clearWarnings: (id) => request(`/api/requests/${id}/warnings`, { method: "DELETE" }),
@@ -35,6 +40,7 @@ export const STATUS_META = {
   proposed: { label: "Proposed", color: "var(--color-s-proposed)" },
   settled_correct: { label: "Correct", color: "var(--color-s-correct)" },
   settled_incorrect: { label: "Incorrect", color: "var(--color-s-incorrect)" },
+  under_review: { label: "Under review", color: "var(--color-s-pending)" },
   expired: { label: "Expired", color: "var(--color-s-neutral)" },
   invalidated: { label: "Invalidated", color: "var(--color-s-neutral)" },
 };

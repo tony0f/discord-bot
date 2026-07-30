@@ -5,6 +5,7 @@ const STATUS_DISPLAY = {
   proposed: { emoji: "📤", label: "Proposed on-chain", color: 0x3498db },
   settled_correct: { emoji: "✅", label: "Settled as requested — credited", color: 0x2ecc71 },
   settled_incorrect: { emoji: "❌", label: "Settled against the request", color: 0xe74c3c },
+  under_review: { emoji: "🟡", label: "Settled as requested — credit under admin review", color: 0xf1c40f },
   expired: { emoji: "🕒", label: "Expired — no proposal within the window", color: 0x95a5a6 },
   invalidated: { emoji: "🚫", label: "Invalidated by an admin", color: 0x7f8c8d },
 };
@@ -80,7 +81,8 @@ function buildRequestEmbed(request, { creditWindowHours, reports = [] } = {}) {
   );
 
   if (request.status === "proposed" && request.proposed_outcome) {
-    const matches = request.proposed_outcome === request.requested_outcome;
+    const okey = (t) => String(t || "").replace(/\s+/g, " ").trim().toLowerCase();
+    const matches = okey(request.proposed_outcome) === okey(request.requested_outcome);
     embed.addFields({
       name: "On-chain proposal",
       value: `**${request.proposed_outcome}** ${matches ? "✅ *matches the request*" : "⚠️ *does NOT match the request*"}`,
@@ -112,7 +114,7 @@ function buildRequestEmbed(request, { creditWindowHours, reports = [] } = {}) {
       inline: true,
     });
   }
-  if (request.status === "settled_correct" || request.status === "settled_incorrect") {
+  if (["settled_correct", "settled_incorrect", "under_review"].includes(request.status)) {
     embed.addFields({
       name: "Settled outcome",
       value: `**${request.settled_outcome || "?"}**`,

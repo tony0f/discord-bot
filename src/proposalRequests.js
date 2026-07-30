@@ -109,6 +109,22 @@ async function createRequest({ user, displayName, marketSlug, outcomeInput, evid
     };
   }
 
+  // 3b. Unambiguous too-early (P4) gate: the game hasn't even started
+  try {
+    const fullMarket = await tp.getMarket(item.question_id);
+    const gameStart = fullMarket?.game_start_time ? new Date(fullMarket.game_start_time) : null;
+    if (gameStart && gameStart.getTime() > Date.now()) {
+      return {
+        ok: false,
+        error:
+          `The game for **${item.title}** hasn't started yet (starts <t:${Math.floor(gameStart.getTime() / 1000)}:R>). ` +
+          `Requesting before the event happens is too early (P4).`,
+      };
+    }
+  } catch (err) {
+    console.warn("[PR] game_start_time check failed:", err.message);
+  }
+
   // 4. Outcome matching
   const { outcomes } = await pm.outcomesForItem(item);
   const matchedOutcome = pm.matchOutcome(outcomeInput, outcomes);

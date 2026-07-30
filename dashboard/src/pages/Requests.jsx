@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Search, Flag, Ban, Eraser, ExternalLink, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, Flag, Ban, Eraser, ExternalLink, ChevronLeft, ChevronRight, BadgeCheck } from "lucide-react";
 import { api, STATUS_META } from "../api.js";
 import { Card, StatusBadge, Button, Modal, EmptyState } from "../ui.jsx";
 
 const PAGE_SIZE = 25;
-const FILTERS = ["all", "pending", "proposed", "settled_correct", "settled_incorrect", "expired", "invalidated"];
+const FILTERS = ["all", "pending", "proposed", "under_review", "settled_correct", "settled_incorrect", "expired", "invalidated"];
 
 function timeAgo(date) {
   const s = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
@@ -19,8 +19,9 @@ export default function Requests() {
   const [page, setPage] = useState(0);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
-  const [action, setAction] = useState(null); // { type: 'invalidate'|'warn'|'clear', request }
+  const [action, setAction] = useState(null); // { type: 'invalidate'|'warn'|'clear'|'approve', request }
   const [reason, setReason] = useState("");
+  const [deleteMsgs, setDeleteMsgs] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
 
@@ -44,18 +45,22 @@ export default function Requests() {
   const runAction = async () => {
     setBusy(true);
     try {
-      if (action.type === "invalidate") await api.invalidate(action.request.id, reason);
+      if (action.type === "invalidate") await api.invalidate(action.request.id, reason, deleteMsgs);
       if (action.type === "warn") await api.addWarning(action.request.id, reason);
       if (action.type === "clear") await api.clearWarnings(action.request.id);
+      if (action.type === "approve") await api.approveCredit(action.request.id);
       flash(
         action.type === "invalidate"
-          ? `Request #${action.request.id} invalidated.`
+          ? `Request #${action.request.id} invalidated${deleteMsgs ? " and Discord messages deleted" : ""}.`
           : action.type === "warn"
             ? `Warning added to #${action.request.id}.`
-            : `Warnings cleared on #${action.request.id}.`,
+            : action.type === "clear"
+              ? `Warnings cleared on #${action.request.id}.`
+              : `Credit approved for #${action.request.id}.`,
       );
       setAction(null);
       setReason("");
+      setDeleteMsgs(false);
       load();
     } catch (e) {
       flash(`Error: ${e.message}`);
@@ -169,6 +174,16 @@ export default function Requests() {
                     <td className="whitespace-nowrap px-4 py-3 text-xs text-ink-3">{timeAgo(r.created_at)}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-right">
                       <div className="inline-flex gap-1">
+                        {r.status === "under_review" && (
+                          <button
+                            title="Approve credit"
+                            aria-label={`Approve credit for request ${r.id}`}
+                            onClick={() => setAction({ type: "approve", request: r })}
+                            className="cursor-pointer rounded-lg p-2 text-s-correct transition-colors hover:bg-s-correct/15"
+                          >
+                            <BadgeCheck size={15} />
+                          </button>
+                        )}
                         <button
                           title="Add community warning"
                           aria-label={`Add warning to request ${r.id}`}
@@ -229,15 +244,18 @@ export default function Requests() {
               ? `Invalidate request #${action.request.id}`
               : action.type === "warn"
                 ? `Add warning to #${action.request.id}`
-                : `Clear warnings on #${action.request.id}`
+                : action.type === "clear"
+                  ? `Clear warnings on #${action.request.id}`
+                  : `Approve credit for #${action.request.id}`
           }
           onClose={() => {
             setAction(null);
             setReason("");
+            setDeleteMsgs(false);
           }}
         >
           <p className="mb-3 text-sm text-ink-2 line-clamp-2">{action.request.market_question}</p>
-          {action.type !== "clear" && (
+          {(action.type === "invalidate" || action.type === "warn") && (
             <>
               <label htmlFor="reason" className="mb-1.5 block text-xs font-medium text-ink-2">
                 Reason (posted to Discord)
@@ -253,22 +271,48 @@ export default function Requests() {
               />
             </>
           )}
+          {action.type === "invalidate" && (
+            <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm text-ink-2">
+              <input
+                type="checkbox"
+                checked={deleteMsgs}
+                onChange={(e) => setDeleteMsgs(e.target.checked)}
+                className="mt-0.5 accent-[--color-s-incorrect]"
+              />
+              <span>
+                Also <strong>delete the Discord messages</strong> of this request (card, discussion
+                thread, evidence and bot notifications) so nobody sees it anymore.
+              </span>
+            </label>
+          )}
           {action.type === "clear" && (
             <p className="text-sm text-ink-2">
               This removes all {action.request.reports.length} community warning(s) and updates the Discord card.
             </p>
           )}
+          {action.type === "approve" && (
+            <p className="text-sm text-ink-2">
+              This confirms the held credit: the request becomes <strong>settled correct</strong>, counts
+              toward the user's record, and the result is announced in Discord.
+            </p>
+          )}
           <div className="mt-4 flex justify-end gap-2">
-            <Button variant="subtle" onClick={() => { setAction(null); setReason(""); }}>
+            <Button variant="subtle" onClick={() => { setAction(null); setReason(""); setDeleteMsgs(false); }}>
               Cancel
             </Button>
             <Button
               variant={action.type === "invalidate" ? "danger" : "primary"}
               loading={busy}
-              disabled={action.type !== "clear" && !reason.trim()}
+              disabled={(action.type === "invalidate" || action.type === "warn") && !reason.trim()}
               onClick={runAction}
             >
-              {action.type === "invalidate" ? "Invalidate" : action.type === "warn" ? "Add warning" : "Clear warnings"}
+              {action.type === "invalidate"
+                ? "Invalidate"
+                : action.type === "warn"
+                  ? "Add warning"
+                  : action.type === "clear"
+                    ? "Clear warnings"
+                    : "Approve credit"}
             </Button>
           </div>
         </Modal>

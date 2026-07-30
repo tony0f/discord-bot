@@ -261,8 +261,19 @@ function parseJsonArrayField(value) {
   }
 }
 
+// Upstream outcome names can carry stray whitespace ("PCIFIC ") — clean them
+// at the source so stored values are always tidy.
+function cleanOutcomeName(text) {
+  return String(text).replace(/\s+/g, " ").trim();
+}
+
+// Whitespace/case-insensitive comparison key for outcome equality checks
+function outcomeKey(text) {
+  return cleanOutcomeName(text || "").toLowerCase();
+}
+
 function getOutcomes(market) {
-  return parseJsonArrayField(market.outcomes);
+  return parseJsonArrayField(market.outcomes).map(cleanOutcomeName);
 }
 
 function normalize(text) {
@@ -349,6 +360,7 @@ module.exports = {
   resolveLinkForForm,
   expandEventBrackets,
   outcomesForItem,
+  outcomeKey,
   fetchMarketBySlug,
   fetchMarketsBySlugs,
   getOutcomes,

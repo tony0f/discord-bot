@@ -33,6 +33,8 @@ Since almost no OOV2 markets remain, users can no longer build the 5-proposals/9
    * **`expired`** — nobody proposed within the window → no credit. This is the main protection against spam and too-early (P4) farming.
 5. Stats accumulate per user over a rolling 6 months. Reaching **5+ settled requests with ≥95% accuracy** flags the user as whitelist-qualified (and closes new requests for them).
 
+**Credit review:** a request that settles as requested but carried community warnings from **before the proposal** (e.g. a genuine "too early / P4" flag) is not credited automatically — it lands in `under_review` and an admin either approves the credit or invalidates it. Outcome comparisons are whitespace/case-normalized. Requests for games that haven't started yet are rejected outright (unambiguous P4). Invalidation can optionally **purge every Discord message** of the request (card, thread, evidence, bot notifications).
+
 **Community moderation:** anyone can `/report` an active request they believe is bad-faith — multiple users can each add one warning per request. The card turns red with a **🚨 COMMUNITY WARNINGS (N)** banner listing every reporter and reason chronologically, the live board shows them (🚩×N badge), and each report is announced publicly under the card. Admins then either `/pr-admin invalidate` the request (it never counts) or `/pr-admin clear_flag` to remove all warnings if they don't hold. **Early-resolution claims** (market end time still in the future) are allowed — per UMA rules a market is proposable as soon as its event occurs — but the card carries a ⚠️ note telling proposers to verify the evidence with extra care.
 
 ### Commands
@@ -50,7 +52,8 @@ Since almost no OOV2 markets remain, users can no longer build the 5-proposals/9
 | `/pr-admin set_daily_limit value:` | admins | Max requests per user per 24h |
 | `/pr-admin set_poll_interval minutes:` | admins | Watcher frequency |
 | `/pr-admin set_dashboard_channel channel:` | admins | Where the auto-updating live board lives |
-| `/pr-admin invalidate id: reason:` | admins | Kill a spam/bad-faith request |
+| `/pr-admin invalidate id: reason: [delete_messages:]` | admins | Kill a spam/bad-faith request, optionally deleting its Discord messages |
+| `/pr-admin approve_credit id:` | admins | Approve the held credit of an under-review request |
 | `/pr-admin clear_flag id:` | admins | Remove a community warning |
 | `/pr-admin user_stats user:` | admins | Inspect any user's record |
 

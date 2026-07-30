@@ -149,6 +149,23 @@ const adminCommand = new SlashCommandBuilder()
           .setName("reason")
           .setDescription("Reason for invalidation.")
           .setRequired(true),
+      )
+      .addBooleanOption((opt) =>
+        opt
+          .setName("delete_messages")
+          .setDescription("Also delete the request's Discord messages (card, thread, evidence).")
+          .setRequired(false),
+      ),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("approve_credit")
+      .setDescription("Approve the held credit of an under-review settled request.")
+      .addIntegerOption((opt) =>
+        opt
+          .setName("id")
+          .setDescription("Request ID.")
+          .setRequired(true),
       ),
   )
   .addSubcommand((sub) =>

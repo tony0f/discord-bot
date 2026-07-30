@@ -327,13 +327,20 @@ async function publishRequestCard(client, request, creditWindowHours) {
         const header = `📎 **Evidence — request #${request.id}** (from <@${request.discord_user_id}>):\n`;
         const chunks =
           (header + request.evidence).match(/[\s\S]{1,1900}/g) || [];
+        const evidenceIds = [];
         for (let i = 0; i < chunks.length; i++) {
           const payload = { content: chunks[i] };
           if (i === 0) {
             payload.reply = { messageReference: message.id, failIfNotExists: false };
             payload.allowedMentions = { parse: [] };
           }
-          await channel.send(payload);
+          const sent = await channel.send(payload);
+          evidenceIds.push(sent.id);
+        }
+        if (evidenceIds.length > 0) {
+          await pr.updateRequestStatus(request.id, {
+            evidence_message_ids: JSON.stringify(evidenceIds),
+          });
         }
       } catch (evidenceErr) {
         console.warn(`[PR] Could not post full evidence for request #${request.id}:`, evidenceErr.message);
@@ -702,6 +709,7 @@ async function handleAdmin(interaction) {
   if (sub === "invalidate") {
     const id = interaction.options.getInteger("id");
     const reason = interaction.options.getString("reason");
+    const deleteMessages = interaction.options.getBoolean("delete_messages") || false;
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const request = await pr.getRequestById(id);
@@ -715,11 +723,39 @@ async function handleAdmin(interaction) {
     }
 
     const updated = await pr.invalidateRequest(id, reason);
-    const { editRequestMessage } = require("./watcher");
-    await editRequestMessage(interaction.client, updated).catch(() => {});
+    const { editRequestMessage, purgeRequestMessages } = require("./watcher");
+    if (deleteMessages) {
+      await purgeRequestMessages(interaction.client, updated).catch(() => {});
+    } else {
+      await editRequestMessage(interaction.client, updated).catch(() => {});
+    }
     refreshDashboard(interaction.client).catch(() => {});
     return interaction.editReply({
-      content: `✅ Request #${id} invalidated. Reason: ${reason}`,
+      content: `✅ Request #${id} invalidated${deleteMessages ? " and its Discord messages were deleted" : ""}. Reason: ${reason}`,
+    });
+  }
+
+  if (sub === "approve_credit") {
+    const id = interaction.options.getInteger("id");
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const request = await pr.getRequestById(id);
+    if (!request) {
+      return interaction.editReply({ content: `❌ Request #${id} not found.` });
+    }
+    if (request.status !== "under_review") {
+      return interaction.editReply({
+        content: `⚠️ Request #${id} is not under review (status: \`${request.status}\`).`,
+      });
+    }
+
+    const updated = await pr.updateRequestStatus(id, { status: "settled_correct" });
+    const { editRequestMessage, notifyResult } = require("./watcher");
+    await editRequestMessage(interaction.client, updated).catch(() => {});
+    await notifyResult(interaction.client, updated).catch(() => {});
+    refreshDashboard(interaction.client).catch(() => {});
+    return interaction.editReply({
+      content: `✅ Credit approved for request #${id} — now counted as correct.`,
     });
   }
 

@@ -192,6 +192,7 @@ function start(client) {
     try {
       const id = parseInt(req.params.id, 10);
       const reason = String(req.body?.reason || "").trim();
+      const deleteMessages = !!req.body?.deleteMessages;
       if (!reason) return res.status(400).json({ error: "Reason is required." });
       const request = await pr.getRequestById(id);
       if (!request) return res.status(404).json({ error: "Request not found." });
@@ -199,6 +200,38 @@ function start(client) {
         return res.status(409).json({ error: "Settled requests cannot be invalidated." });
       }
       const updated = await pr.invalidateRequest(id, reason);
+      if (deleteMessages) {
+        try {
+          const { purgeRequestMessages, refreshDashboard } = require("./watcher");
+          await purgeRequestMessages(client, updated);
+          await refreshDashboard(client);
+        } catch (err) {
+          console.warn("[Web] Purge failed:", err.message);
+        }
+      } else {
+        syncDiscord(id);
+      }
+      res.json({ ok: true, request: updated });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post("/api/requests/:id/approve-credit", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const request = await pr.getRequestById(id);
+      if (!request) return res.status(404).json({ error: "Request not found." });
+      if (request.status !== "under_review") {
+        return res.status(409).json({ error: "Only under-review requests can have credit approved." });
+      }
+      const updated = await pr.updateRequestStatus(id, { status: "settled_correct" });
+      try {
+        const { notifyResult } = require("./watcher");
+        await notifyResult(client, updated);
+      } catch (err) {
+        console.warn("[Web] Credit notification failed:", err.message);
+      }
       syncDiscord(id);
       res.json({ ok: true, request: updated });
     } catch (err) {

@@ -90,6 +90,71 @@ async function notifyResult(client, request) {
   }
 }
 
+async function notifyReview(client, request) {
+  try {
+    const channel = await client.channels.fetch(PROPOSAL_REQUESTS_CHANNEL_ID);
+    const payload = {
+      content:
+        `🟡 Request **#${request.id}** by <@${request.discord_user_id}> settled as requested (**${request.settled_outcome}**), ` +
+        `but it carried community warnings from before the proposal — **credit is under admin review**.`,
+    };
+    if (request.message_id) {
+      payload.reply = { messageReference: request.message_id, failIfNotExists: false };
+    }
+    await channel.send(payload);
+  } catch (err) {
+    console.warn(`${logPrefix} Could not send review notification for #${request.id}:`, err.message);
+  }
+}
+
+// Deletes every bot message tied to a request: the card (whose id is also
+// the discussion thread's id), tracked evidence messages, and a best-effort
+// sweep of recent bot messages that reference the request.
+async function purgeRequestMessages(client, request) {
+  if (!request.channel_id) return;
+  try {
+    const channel = await client.channels.fetch(request.channel_id);
+
+    if (request.message_id) {
+      const thread = await channel.threads.fetch(request.message_id).catch(() => null);
+      if (thread) {
+        await thread.delete("Request invalidated").catch((err) =>
+          console.warn(`${logPrefix} Could not delete thread for #${request.id}:`, err.message),
+        );
+      }
+      await channel.messages.delete(request.message_id).catch(() => {});
+    }
+
+    let evidenceIds = [];
+    try {
+      evidenceIds = JSON.parse(request.evidence_message_ids || "[]");
+    } catch {
+      /* legacy rows */
+    }
+    for (const id of evidenceIds) {
+      await channel.messages.delete(id).catch(() => {});
+    }
+
+    // Sweep recent bot messages about this request (results, warnings, older
+    // evidence posts that predate evidence_message_ids tracking)
+    const idPattern = new RegExp(`#${request.id}\\b`);
+    const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+    if (recent) {
+      for (const msg of recent.values()) {
+        if (msg.author.id !== client.user.id) continue;
+        const repliesToCard =
+          request.message_id && msg.reference?.messageId === request.message_id;
+        if (repliesToCard || (idPattern.test(msg.content || "") && /request/i.test(msg.content || ""))) {
+          await msg.delete().catch(() => {});
+        }
+      }
+    }
+    console.log(`${logPrefix} Purged Discord messages for request #${request.id}.`);
+  } catch (err) {
+    console.warn(`${logPrefix} Purge failed for #${request.id}:`, err.message);
+  }
+}
+
 async function refreshDashboard(client) {
   if (!db.isEnabled()) return;
   const settings = await db.getSettings();
@@ -157,6 +222,42 @@ async function runCycle(client) {
       }
     }
 
+    // 0b. Repair settlements once broken by upstream whitespace in outcome
+    //     names ("PCIFIC " vs "PCIFIC"). Requests with warnings predating the
+    //     proposal go to review instead of silent credit. Idempotent.
+    const wsCandidates = await db.query(
+      `SELECT * FROM proposal_requests
+       WHERE status = 'settled_incorrect' AND settled_outcome IS NOT NULL`,
+    );
+    for (const request of wsCandidates.rows) {
+      if (pm.outcomeKey(request.settled_outcome) !== pm.outcomeKey(request.requested_outcome)) {
+        continue;
+      }
+      const reports = await pr.getReports(request.id);
+      const proposedAt = new Date(request.proposed_at || request.settled_at || Date.now());
+      const held = reports.some((rep) => new Date(rep.created_at) < proposedAt);
+      const updated = await pr.updateRequestStatus(request.id, {
+        status: held ? "under_review" : "settled_correct",
+        settled_outcome: request.requested_outcome,
+      });
+      console.log(`${logPrefix} Repaired whitespace-mismatched settlement on #${request.id} → ${updated.status}.`);
+      await editRequestMessage(client, updated);
+      try {
+        const channel = await client.channels.fetch(PROPOSAL_REQUESTS_CHANNEL_ID);
+        const payload = {
+          content: held
+            ? `🟡 **Correction:** request **#${request.id}** by <@${request.discord_user_id}> actually settled as requested (**${updated.settled_outcome}**) — the "incorrect" verdict was a labeling bug. It carried pre-proposal community warnings, so **credit is under admin review**.`
+            : `✅ **Correction:** request **#${request.id}** by <@${request.discord_user_id}> settled exactly as requested (**${updated.settled_outcome}**) — the earlier "incorrect" verdict was a labeling bug on our side. Credited to their record.`,
+        };
+        if (request.message_id) {
+          payload.reply = { messageReference: request.message_id, failIfNotExists: false };
+        }
+        await channel.send(payload);
+      } catch (err) {
+        console.warn(`${logPrefix} Could not announce whitespace repair for #${request.id}:`, err.message);
+      }
+    }
+
     // 1. Expire pending requests whose credit window has passed.
     //    This runs BEFORE market checks, so a request can never be credited
     //    for a proposal that arrived after its window.
@@ -191,9 +292,20 @@ async function runCycle(client) {
           console.warn(`${logPrefix} Request #${request.id}: settled but winner indeterminate. Will retry.`);
           continue;
         }
-        const correct = winner === request.requested_outcome;
+        const correct = pm.outcomeKey(winner) === pm.outcomeKey(request.requested_outcome);
+        let status = correct ? "settled_correct" : "settled_incorrect";
+        // Correct settlements that carried a community warning BEFORE the
+        // proposal (e.g. a genuine "too early / P4" flag) are not credited
+        // automatically — an admin approves or invalidates.
+        if (correct) {
+          const reports = await pr.getReports(request.id);
+          const proposedAt = new Date(request.proposed_at || Date.now());
+          if (reports.some((rep) => new Date(rep.created_at) < proposedAt)) {
+            status = "under_review";
+          }
+        }
         const fields = {
-          status: correct ? "settled_correct" : "settled_incorrect",
+          status,
           settled_at: new Date(),
           settled_outcome: winner,
           proposed_at: request.proposed_at || new Date(),
@@ -205,11 +317,13 @@ async function runCycle(client) {
           fields.proposer_address = await onchain.getTxSender(res.proposeTx, request.creation_source);
         }
         const updated = await pr.updateRequestStatus(request.id, fields);
-        console.log(
-          `${logPrefix} Request #${request.id} settled ${correct ? "CORRECT" : "INCORRECT"} (winner: ${winner}).`,
-        );
+        console.log(`${logPrefix} Request #${request.id} settled → ${status} (winner: ${winner}).`);
         await editRequestMessage(client, updated);
-        await notifyResult(client, updated);
+        if (status === "under_review") {
+          await notifyReview(client, updated);
+        } else {
+          await notifyResult(client, updated);
+        }
       } else if (tp.hasLiveProposal(res.status)) {
         const proposedOutcome = labelForRequest(request, res.proposedOutcome);
         const txChanged = res.proposeTx && res.proposeTx !== request.propose_tx;
@@ -283,4 +397,11 @@ function start(client) {
   tick();
 }
 
-module.exports = { start, runCycle, refreshDashboard, editRequestMessage };
+module.exports = {
+  start,
+  runCycle,
+  refreshDashboard,
+  editRequestMessage,
+  purgeRequestMessages,
+  notifyResult,
+};
