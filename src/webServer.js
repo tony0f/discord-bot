@@ -199,7 +199,11 @@ function start(client) {
       if (["settled_correct", "settled_incorrect"].includes(request.status)) {
         return res.status(409).json({ error: "Settled requests cannot be invalidated." });
       }
-      const updated = await pr.invalidateRequest(id, reason);
+      // Denying an under-review credit counts as a loss, not a neutral removal
+      const updated =
+        request.status === "under_review"
+          ? await pr.denyCredit(id, reason)
+          : await pr.invalidateRequest(id, reason);
       if (deleteMessages) {
         try {
           const { purgeRequestMessages, refreshDashboard } = require("./watcher");

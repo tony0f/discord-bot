@@ -271,6 +271,16 @@ async function invalidateRequest(id, reason) {
   return updateRequestStatus(id, { status: "invalidated", invalidated_reason: reason });
 }
 
+// Denying the held credit of an under-review request counts as a LOSS:
+// requesting at a moment that would have caused a P4/dispute is exactly the
+// judgment error the record must reflect.
+async function denyCredit(id, reason) {
+  return updateRequestStatus(id, {
+    status: "settled_incorrect",
+    invalidated_reason: reason,
+  });
+}
+
 // Community warnings: any user can flag an active request they believe is
 // bad-faith. Many warnings per request, at most one per reporter.
 async function reportRequest(id, reporter, reason) {
@@ -342,6 +352,7 @@ module.exports = {
   getRequestById,
   updateRequestStatus,
   invalidateRequest,
+  denyCredit,
   reportRequest,
   getReports,
   getReportsMap,

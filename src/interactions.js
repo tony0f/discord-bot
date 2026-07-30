@@ -722,7 +722,11 @@ async function handleAdmin(interaction) {
       });
     }
 
-    const updated = await pr.invalidateRequest(id, reason);
+    // Denying an under-review credit counts as a loss, not a neutral removal
+    const denied = request.status === "under_review";
+    const updated = denied
+      ? await pr.denyCredit(id, reason)
+      : await pr.invalidateRequest(id, reason);
     const { editRequestMessage, purgeRequestMessages } = require("./watcher");
     if (deleteMessages) {
       await purgeRequestMessages(interaction.client, updated).catch(() => {});
@@ -731,7 +735,9 @@ async function handleAdmin(interaction) {
     }
     refreshDashboard(interaction.client).catch(() => {});
     return interaction.editReply({
-      content: `✅ Request #${id} invalidated${deleteMessages ? " and its Discord messages were deleted" : ""}. Reason: ${reason}`,
+      content: denied
+        ? `✅ Credit denied for request #${id} — counted as **incorrect**${deleteMessages ? ", Discord messages deleted" : ""}. Reason: ${reason}`
+        : `✅ Request #${id} invalidated${deleteMessages ? " and its Discord messages were deleted" : ""}. Reason: ${reason}`,
     });
   }
 

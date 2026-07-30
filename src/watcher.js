@@ -268,6 +268,32 @@ async function runCycle(client) {
       }
     }
 
+    // 0c. Denied credits recorded as neutral "invalidated" before the
+    //     deny-as-loss rule existed (they had already settled when the admin
+    //     acted) become losses. Idempotent: new denials never hit this state.
+    const denied = await db.query(
+      `UPDATE proposal_requests
+       SET status = 'settled_incorrect', updated_at = now()
+       WHERE status = 'invalidated' AND settled_outcome IS NOT NULL
+       RETURNING *`,
+    );
+    for (const request of denied.rows) {
+      console.log(`${logPrefix} Reclassified denied credit on #${request.id} as a loss.`);
+      await editRequestMessage(client, request);
+      try {
+        const channel = await client.channels.fetch(PROPOSAL_REQUESTS_CHANNEL_ID);
+        const payload = {
+          content: `❌ Request **#${request.id}** by <@${request.discord_user_id}>: credit was **denied after admin review** — requesting it at that moment would have caused a P4/dispute. Counted as **incorrect**.`,
+        };
+        if (request.message_id) {
+          payload.reply = { messageReference: request.message_id, failIfNotExists: false };
+        }
+        await channel.send(payload);
+      } catch (err) {
+        console.warn(`${logPrefix} Could not announce denial for #${request.id}:`, err.message);
+      }
+    }
+
     // 1. Expire pending requests whose credit window has passed.
     //    This runs BEFORE market checks, so a request can never be credited
     //    for a proposal that arrived after its window.

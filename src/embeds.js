@@ -20,7 +20,14 @@ function unixSeconds(date) {
 }
 
 function buildRequestEmbed(request, { creditWindowHours, reports = [] } = {}) {
-  const display = STATUS_DISPLAY[request.status] || STATUS_DISPLAY.pending;
+  let display = STATUS_DISPLAY[request.status] || STATUS_DISPLAY.pending;
+  // A denied credit is a loss with its own story: it settled as requested,
+  // but requesting it at that time was a P4-grade judgment error.
+  const creditDenied =
+    request.status === "settled_incorrect" && !!request.invalidated_reason;
+  if (creditDenied) {
+    display = { emoji: "❌", label: "Credit denied after review — counted as incorrect", color: 0xe74c3c };
+  }
   const isActive = request.status === "pending" || request.status === "proposed";
   // Community warnings visually take over the card while the request is active
   const color = reports.length > 0 && isActive ? 0xe74c3c : display.color;
@@ -124,6 +131,12 @@ function buildRequestEmbed(request, { creditWindowHours, reports = [] } = {}) {
   if (request.status === "invalidated" && request.invalidated_reason) {
     embed.addFields({
       name: "Invalidation reason",
+      value: truncate(request.invalidated_reason, 1024),
+    });
+  }
+  if (creditDenied) {
+    embed.addFields({
+      name: "Denial reason",
       value: truncate(request.invalidated_reason, 1024),
     });
   }

@@ -241,7 +241,9 @@ export default function Requests() {
         <Modal
           title={
             action.type === "invalidate"
-              ? `Invalidate request #${action.request.id}`
+              ? action.request.status === "under_review"
+                ? `Deny credit for #${action.request.id}`
+                : `Invalidate request #${action.request.id}`
               : action.type === "warn"
                 ? `Add warning to #${action.request.id}`
                 : action.type === "clear"
@@ -270,6 +272,12 @@ export default function Requests() {
                 placeholder={action.type === "invalidate" ? "Spam, bad faith, duplicate…" : "Why proposers should be careful…"}
               />
             </>
+          )}
+          {action.type === "invalidate" && action.request.status === "under_review" && (
+            <p className="mb-2 rounded-lg bg-s-incorrect/10 px-3 py-2 text-xs" style={{ color: "var(--color-s-incorrect)" }}>
+              Denying counts as a <strong>loss</strong> (settled incorrect): requesting at a moment
+              that would have caused a P4/dispute is a judgment error the record must reflect.
+            </p>
           )}
           {action.type === "invalidate" && (
             <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm text-ink-2">
@@ -307,7 +315,9 @@ export default function Requests() {
               onClick={runAction}
             >
               {action.type === "invalidate"
-                ? "Invalidate"
+                ? action.request.status === "under_review"
+                  ? "Deny credit"
+                  : "Invalidate"
                 : action.type === "warn"
                   ? "Add warning"
                   : action.type === "clear"
