@@ -22,14 +22,24 @@ function isBinaryYesNo(request) {
   }
 }
 
-// 3PO maps p-values to Yes/No, which is only trustworthy for binary Yes/No
-// markets. For named outcomes (teams, Over/Under) keep the raw p-value unless
-// 3PO decoded the actual name.
+// 3PO maps p-values to Yes/No, which is only literal for binary Yes/No
+// markets. For two named outcomes (teams, Over/Under) the CTF adapter
+// convention is fixed: p2 pays out the FIRST outcome, p1 the SECOND
+// (resolved p2 → outcomePrices ["1","0"]) — confirmed against the UMA
+// explorer's decoded values (P2 = PCIFIC, P1 = Under).
 function labelForRequest(request, tpLabel) {
   if (!tpLabel) return null;
   if (tpLabel === tp.TIE_OUTCOME) return tpLabel;
   if (tpLabel !== "Yes" && tpLabel !== "No") return tpLabel; // decoded name
   if (isBinaryYesNo(request)) return tpLabel;
+  try {
+    const outcomes = JSON.parse(request.outcomes || "[]");
+    if (outcomes.length === 2) {
+      return tpLabel === "Yes" ? outcomes[0] : outcomes[1];
+    }
+  } catch {
+    /* fall through to raw p-values */
+  }
   return tpLabel === "Yes" ? "p2" : "p1";
 }
 

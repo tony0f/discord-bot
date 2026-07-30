@@ -203,9 +203,9 @@ export default function Requests() {
                           <Eraser size={15} />
                         </button>
                         <button
-                          title="Invalidate request"
+                          title={r.status === "under_review" ? "Deny credit (invalidate)" : "Invalidate request"}
                           aria-label={`Invalidate request ${r.id}`}
-                          disabled={!active}
+                          disabled={!active && r.status !== "under_review"}
                           onClick={() => setAction({ type: "invalidate", request: r })}
                           className="cursor-pointer rounded-lg p-2 text-ink-3 transition-colors hover:bg-s-incorrect/15 hover:text-s-incorrect disabled:cursor-not-allowed disabled:opacity-30"
                         >
