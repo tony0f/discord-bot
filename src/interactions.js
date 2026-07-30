@@ -218,6 +218,16 @@ async function handleRequestCommand(interaction) {
 
   let requestable = form.brackets;
 
+  // Sports pages aggregate sibling events (-more-markets, -total-corners...)
+  // — discover them and merge every requestable line
+  if (form.expandable) {
+    try {
+      requestable = await pm.expandEventBrackets(form);
+    } catch (err) {
+      console.warn("[PR] Sibling expansion failed:", err.message);
+    }
+  }
+
   // Hide markets that already have an active request (first come, first served)
   try {
     const active = await db.query(

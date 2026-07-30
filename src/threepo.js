@@ -18,7 +18,7 @@ async function get(path) {
 // Search by exact slugs. A user-shared URL segment may be a market slug OR an
 // event slug, so both filters are tried (3PO ORs across provided filters).
 async function searchMarkets({ marketSlug, eventSlug, questionIds } = {}) {
-  const params = new URLSearchParams({ page_size: "100" });
+  const params = new URLSearchParams({ page_size: "500" });
   if (marketSlug) params.set("market_slugs", marketSlug);
   if (eventSlug) params.set("event_slugs", eventSlug);
   if (questionIds?.length) params.set("question_ids", questionIds.join(","));

@@ -149,15 +149,34 @@ async function resolveLinkForForm(rawUrl) {
       ];
 
   let items = [];
+  let matchedBy = null;
   for (const lookup of lookups) {
     items = await tp.searchMarkets(lookup);
-    if (items.length > 0) break;
+    if (items.length > 0) {
+      matchedBy = lookup.eventSlug ? "event" : "market";
+      break;
+    }
   }
   if (items.length === 0) {
     return { error: "Market not found. Please check the link." };
   }
 
   const requestable = items.filter((i) => tp.isRequestable(i.status));
+  const baseEventSlug = items[0].event_slug || parsed.eventSlug || null;
+
+  // Polymarket event URLs stay in the event flow even with 0/1 requestable
+  // base markets: sports pages aggregate SIBLING events (-more-markets,
+  // -total-corners...) that are discovered after the reply is deferred.
+  if (matchedBy === "event" && items[0].creation_source === "polymarket") {
+    return {
+      type: "event",
+      eventTitle: baseEventSlug || "event",
+      brackets: requestable.map(normalizeItem),
+      baseEventSlug,
+      expandable: true,
+    };
+  }
+
   if (requestable.length === 0) {
     return {
       error:
@@ -173,9 +192,63 @@ async function resolveLinkForForm(rawUrl) {
 
   return {
     type: "event",
-    eventTitle: requestable[0].event_slug || parsed.eventSlug || "event",
+    eventTitle: baseEventSlug || "event",
     brackets: requestable.map(normalizeItem),
   };
+}
+
+// Polymarket sports pages aggregate several Gamma "events" for one match
+// (base, -more-markets, -total-corners...). Some siblings share the base
+// event's gameId, others (corners) carry none — those are found by probing
+// known suffixes with one multi-slug Gamma call. All discovered event slugs
+// go into a single comma-separated 3PO search.
+const SIBLING_SUFFIXES = [
+  "-more-markets",
+  "-total-corners",
+  "-corners",
+  "-cards",
+  "-halftime-result",
+  "-second-half-result",
+  "-exact-score",
+  "-first-to-score",
+  "-player-props",
+  "-props",
+  "-shots-on-target",
+  "-team-totals",
+];
+
+async function expandEventBrackets(form) {
+  const baseSlug = form.baseEventSlug;
+  if (!baseSlug) return form.brackets;
+
+  const slugs = new Set([baseSlug]);
+  try {
+    const probeQs = SIBLING_SUFFIXES.map(
+      (suffix) => `slug=${encodeURIComponent(baseSlug + suffix)}`,
+    ).join("&");
+    const probed = await gammaGet(`/events?${probeQs}`);
+    for (const event of probed || []) slugs.add(event.slug);
+
+    const base = await fetchEventBySlug(baseSlug);
+    if (base?.gameId) {
+      const siblings = await gammaGet(`/events?game_id=${base.gameId}`);
+      for (const event of siblings || []) slugs.add(event.slug);
+    }
+  } catch (err) {
+    console.warn(`[PM] Sibling event discovery failed for ${baseSlug}:`, err.message);
+  }
+  if (slugs.size === 1) return form.brackets;
+
+  try {
+    const items = await tp.searchMarkets({ eventSlug: [...slugs].join(",") });
+    const requestable = items.filter((i) => tp.isRequestable(i.status));
+    if (requestable.length > 0 || items.length > 0) {
+      return requestable.map(normalizeItem);
+    }
+  } catch (err) {
+    console.warn(`[PM] Expanded 3PO search failed for ${baseSlug}:`, err.message);
+  }
+  return form.brackets;
 }
 
 function parseJsonArrayField(value) {
@@ -274,6 +347,7 @@ function isEarlyClaim(market, now = Date.now()) {
 module.exports = {
   TIE_OUTCOME,
   resolveLinkForForm,
+  expandEventBrackets,
   outcomesForItem,
   fetchMarketBySlug,
   fetchMarketsBySlugs,
