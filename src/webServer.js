@@ -100,7 +100,7 @@ function start(client) {
           `SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
                   COUNT(*)::int AS created,
                   COUNT(*) FILTER (WHERE status = 'settled_correct')::int AS correct,
-                  COUNT(*) FILTER (WHERE status = 'settled_incorrect')::int AS incorrect,
+                  COUNT(*) FILTER (WHERE status IN ('settled_incorrect','credit_denied'))::int AS incorrect,
                   COUNT(*) FILTER (WHERE status = 'expired')::int AS expired
            FROM proposal_requests
            WHERE created_at > now() - interval '30 days'
@@ -117,7 +117,7 @@ function start(client) {
                   COUNT(*)::int AS total,
                   COUNT(*) FILTER (WHERE status = 'settled_correct'
                     AND settled_at > now() - interval '6 months')::int AS correct_6m,
-                  COUNT(*) FILTER (WHERE status = 'settled_incorrect'
+                  COUNT(*) FILTER (WHERE status IN ('settled_incorrect','credit_denied')
                     AND settled_at > now() - interval '6 months')::int AS incorrect_6m
            FROM proposal_requests`,
         ),
@@ -196,7 +196,7 @@ function start(client) {
       if (!reason) return res.status(400).json({ error: "Reason is required." });
       const request = await pr.getRequestById(id);
       if (!request) return res.status(404).json({ error: "Request not found." });
-      if (["settled_correct", "settled_incorrect"].includes(request.status)) {
+      if (["settled_correct", "settled_incorrect", "credit_denied"].includes(request.status)) {
         return res.status(409).json({ error: "Settled requests cannot be invalidated." });
       }
       // Denying an under-review credit counts as a loss, not a neutral removal
@@ -229,7 +229,10 @@ function start(client) {
       if (request.status !== "under_review") {
         return res.status(409).json({ error: "Only under-review requests can have credit approved." });
       }
-      const updated = await pr.updateRequestStatus(id, { status: "settled_correct" });
+      const updated = await pr.updateRequestStatus(id, {
+        status: "settled_correct",
+        invalidated_reason: null,
+      });
       try {
         const { notifyResult } = require("./watcher");
         await notifyResult(client, updated);

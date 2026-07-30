@@ -6,6 +6,7 @@ const STATUS_DISPLAY = {
   settled_correct: { emoji: "✅", label: "Settled as requested — credited", color: 0x2ecc71 },
   settled_incorrect: { emoji: "❌", label: "Settled against the request", color: 0xe74c3c },
   under_review: { emoji: "🟡", label: "Settled as requested — credit under admin review", color: 0xf1c40f },
+  credit_denied: { emoji: "🚫", label: "Credit denied after review — counted as a loss", color: 0xe74c3c },
   expired: { emoji: "🕒", label: "Expired — no proposal within the window", color: 0x95a5a6 },
   invalidated: { emoji: "🚫", label: "Invalidated by an admin", color: 0x7f8c8d },
 };
@@ -20,14 +21,7 @@ function unixSeconds(date) {
 }
 
 function buildRequestEmbed(request, { creditWindowHours, reports = [] } = {}) {
-  let display = STATUS_DISPLAY[request.status] || STATUS_DISPLAY.pending;
-  // A denied credit is a loss with its own story: it settled as requested,
-  // but requesting it at that time was a P4-grade judgment error.
-  const creditDenied =
-    request.status === "settled_incorrect" && !!request.invalidated_reason;
-  if (creditDenied) {
-    display = { emoji: "❌", label: "Credit denied after review — counted as incorrect", color: 0xe74c3c };
-  }
+  const display = STATUS_DISPLAY[request.status] || STATUS_DISPLAY.pending;
   const isActive = request.status === "pending" || request.status === "proposed";
   // Community warnings visually take over the card while the request is active
   const color = reports.length > 0 && isActive ? 0xe74c3c : display.color;
@@ -121,7 +115,7 @@ function buildRequestEmbed(request, { creditWindowHours, reports = [] } = {}) {
       inline: true,
     });
   }
-  if (["settled_correct", "settled_incorrect", "under_review"].includes(request.status)) {
+  if (["settled_correct", "settled_incorrect", "under_review", "credit_denied"].includes(request.status)) {
     embed.addFields({
       name: "Settled outcome",
       value: `**${request.settled_outcome || "?"}**`,
@@ -134,7 +128,7 @@ function buildRequestEmbed(request, { creditWindowHours, reports = [] } = {}) {
       value: truncate(request.invalidated_reason, 1024),
     });
   }
-  if (creditDenied) {
+  if (request.status === "credit_denied" && request.invalidated_reason) {
     embed.addFields({
       name: "Denial reason",
       value: truncate(request.invalidated_reason, 1024),

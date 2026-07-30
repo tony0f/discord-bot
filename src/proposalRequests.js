@@ -19,7 +19,7 @@ async function getUserStats(userId) {
        COUNT(*) FILTER (WHERE status = 'expired') AS expired,
        COUNT(*) FILTER (WHERE status = 'settled_correct'
          AND settled_at > now() - interval '6 months') AS correct_6m,
-       COUNT(*) FILTER (WHERE status = 'settled_incorrect'
+       COUNT(*) FILTER (WHERE status IN ('settled_incorrect','credit_denied')
          AND settled_at > now() - interval '6 months') AS incorrect_6m,
        COUNT(*) FILTER (WHERE created_at > now() - interval '24 hours'
          AND status <> 'invalidated') AS last_24h,
@@ -212,13 +212,13 @@ async function getLeaderboard(limit = 15) {
     `SELECT discord_user_id,
             MAX(discord_username) AS username,
             COUNT(*) FILTER (WHERE status = 'settled_correct') AS correct,
-            COUNT(*) FILTER (WHERE status = 'settled_incorrect') AS incorrect
+            COUNT(*) FILTER (WHERE status IN ('settled_incorrect','credit_denied')) AS incorrect
      FROM proposal_requests
-     WHERE status IN ('settled_correct','settled_incorrect')
+     WHERE status IN ('settled_correct','settled_incorrect','credit_denied')
        AND settled_at > now() - interval '6 months'
      GROUP BY discord_user_id
      ORDER BY COUNT(*) FILTER (WHERE status = 'settled_correct') DESC,
-              COUNT(*) FILTER (WHERE status = 'settled_incorrect') ASC
+              COUNT(*) FILTER (WHERE status IN ('settled_incorrect','credit_denied')) ASC
      LIMIT $1`,
     [limit],
   );
@@ -271,12 +271,13 @@ async function invalidateRequest(id, reason) {
   return updateRequestStatus(id, { status: "invalidated", invalidated_reason: reason });
 }
 
-// Denying the held credit of an under-review request counts as a LOSS:
+// Denying the held credit of an under-review request counts as a LOSS in the
+// record (own status so it never mixes with genuine settled-against results):
 // requesting at a moment that would have caused a P4/dispute is exactly the
 // judgment error the record must reflect.
 async function denyCredit(id, reason) {
   return updateRequestStatus(id, {
-    status: "settled_incorrect",
+    status: "credit_denied",
     invalidated_reason: reason,
   });
 }

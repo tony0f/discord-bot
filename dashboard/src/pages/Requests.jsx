@@ -4,7 +4,7 @@ import { api, STATUS_META } from "../api.js";
 import { Card, StatusBadge, Button, Modal, EmptyState } from "../ui.jsx";
 
 const PAGE_SIZE = 25;
-const FILTERS = ["all", "pending", "proposed", "under_review", "settled_correct", "settled_incorrect", "expired", "invalidated"];
+const FILTERS = ["all", "pending", "proposed", "under_review", "settled_correct", "settled_incorrect", "credit_denied", "expired", "invalidated"];
 
 function timeAgo(date) {
   const s = Math.floor((Date.now() - new Date(date).getTime()) / 1000);

@@ -210,6 +210,7 @@ async function runCycle(client) {
       `UPDATE proposal_requests
        SET status = 'settled_correct', settled_outcome = '50-50', updated_at = now()
        WHERE status = 'settled_incorrect'
+         AND invalidated_reason IS NULL
          AND requested_outcome = '50-50'
          AND (settled_outcome ILIKE '%50-50%' OR settled_outcome ILIKE '%50/50%'
               OR settled_outcome ILIKE 'unknown%' OR settled_outcome ILIKE 'tie%')
@@ -237,7 +238,8 @@ async function runCycle(client) {
     //     proposal go to review instead of silent credit. Idempotent.
     const wsCandidates = await db.query(
       `SELECT * FROM proposal_requests
-       WHERE status = 'settled_incorrect' AND settled_outcome IS NOT NULL`,
+       WHERE status = 'settled_incorrect' AND settled_outcome IS NOT NULL
+         AND invalidated_reason IS NULL`,
     );
     for (const request of wsCandidates.rows) {
       if (pm.outcomeKey(request.settled_outcome) !== pm.outcomeKey(request.requested_outcome)) {
@@ -268,13 +270,15 @@ async function runCycle(client) {
       }
     }
 
-    // 0c. Denied credits recorded as neutral "invalidated" before the
-    //     deny-as-loss rule existed (they had already settled when the admin
-    //     acted) become losses. Idempotent: new denials never hit this state.
+    // 0c. Denied credits recorded under older semantics become credit_denied:
+    //     neutral "invalidated" rows that had already settled, and rows a
+    //     repair bounced back to under_review after a deny (they carry the
+    //     denial reason). Idempotent: new denials go straight to credit_denied.
     const denied = await db.query(
       `UPDATE proposal_requests
-       SET status = 'settled_incorrect', updated_at = now()
-       WHERE status = 'invalidated' AND settled_outcome IS NOT NULL
+       SET status = 'credit_denied', updated_at = now()
+       WHERE (status = 'invalidated' AND settled_outcome IS NOT NULL)
+          OR (status = 'under_review' AND invalidated_reason IS NOT NULL)
        RETURNING *`,
     );
     for (const request of denied.rows) {

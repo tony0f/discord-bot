@@ -41,6 +41,7 @@ export const STATUS_META = {
   settled_correct: { label: "Correct", color: "var(--color-s-correct)" },
   settled_incorrect: { label: "Incorrect", color: "var(--color-s-incorrect)" },
   under_review: { label: "Under review", color: "var(--color-s-pending)" },
+  credit_denied: { label: "Credit denied", color: "var(--color-s-incorrect)" },
   expired: { label: "Expired", color: "var(--color-s-neutral)" },
   invalidated: { label: "Invalidated", color: "var(--color-s-neutral)" },
 };

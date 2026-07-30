@@ -716,7 +716,7 @@ async function handleAdmin(interaction) {
     if (!request) {
       return interaction.editReply({ content: `❌ Request #${id} not found.` });
     }
-    if (["settled_correct", "settled_incorrect"].includes(request.status)) {
+    if (["settled_correct", "settled_incorrect", "credit_denied"].includes(request.status)) {
       return interaction.editReply({
         content: `⚠️ Request #${id} is already settled (\`${request.status}\`). Invalidating it anyway would rewrite history — not allowed.`,
       });
@@ -755,7 +755,10 @@ async function handleAdmin(interaction) {
       });
     }
 
-    const updated = await pr.updateRequestStatus(id, { status: "settled_correct" });
+    const updated = await pr.updateRequestStatus(id, {
+      status: "settled_correct",
+      invalidated_reason: null,
+    });
     const { editRequestMessage, notifyResult } = require("./watcher");
     await editRequestMessage(interaction.client, updated).catch(() => {});
     await notifyResult(interaction.client, updated).catch(() => {});
