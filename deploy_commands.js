@@ -59,6 +59,30 @@ const reportCommand = new SlashCommandBuilder()
       .setRequired(true),
   );
 
+const erSearchCommand = new SlashCommandBuilder()
+  .setName("er-search")
+  .setDescription("Export ER dispute-thread comments matching a title and date range as markdown.")
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .addStringOption((opt) =>
+    opt
+      .setName("query")
+      .setDescription("Word or phrase the thread title must contain (case-insensitive).")
+      .setMaxLength(100)
+      .setRequired(true),
+  )
+  .addStringOption((opt) =>
+    opt
+      .setName("from")
+      .setDescription("Start date (YYYY-MM-DD, UTC, by thread creation).")
+      .setRequired(true),
+  )
+  .addStringOption((opt) =>
+    opt
+      .setName("to")
+      .setDescription("End date (YYYY-MM-DD, UTC). Defaults to today.")
+      .setRequired(false),
+  );
+
 const adminCommand = new SlashCommandBuilder()
   .setName("pr-admin")
   .setDescription("Admin settings for the proposal-requests system.")
@@ -197,6 +221,7 @@ const commands = [
   leaderboardCommand.toJSON(),
   requestsListCommand.toJSON(),
   reportCommand.toJSON(),
+  erSearchCommand.toJSON(),
   adminCommand.toJSON(),
 ];
 

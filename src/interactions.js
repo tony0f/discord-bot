@@ -7,6 +7,7 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  AttachmentBuilder,
   EmbedBuilder,
   MessageFlags,
   PermissionsBitField,
@@ -14,6 +15,7 @@ const {
 const db = require("./db");
 const pm = require("./polymarket");
 const pr = require("./proposalRequests");
+const erSearch = require("./erSearch");
 const { buildRequestEmbed, buildDashboardEmbed } = require("./embeds");
 const { refreshDashboard } = require("./watcher");
 const {
@@ -635,6 +637,61 @@ async function handleReport(interaction) {
   });
 }
 
+async function handleErSearch(interaction) {
+  if (!hasAccess(interaction.member)) {
+    return interaction.reply({
+      content: "⛔ This command requires Administrator permissions or the Risk Labs role.",
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  const query = interaction.options.getString("query");
+  const fromMs = erSearch.parseDay(interaction.options.getString("from"));
+  const toInput = interaction.options.getString("to");
+  const toMs = toInput
+    ? erSearch.parseDay(toInput, true)
+    : Date.now();
+
+  if (fromMs === null || toMs === null) {
+    return interaction.reply({
+      content: "❌ Invalid date format. Use `YYYY-MM-DD` (e.g. `2026-08-01`).",
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+  if (fromMs > toMs) {
+    return interaction.reply({
+      content: "❌ `from` must be before `to`.",
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  try {
+    const { markdown, threadCount, commentCount, truncated } = await erSearch.searchToMarkdown(
+      interaction.client,
+      { query, fromMs, toMs },
+    );
+
+    const safeQuery = query.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "search";
+    const file = new AttachmentBuilder(Buffer.from(markdown, "utf8"), {
+      name: `er-threads-${safeQuery}-${new Date(fromMs).toISOString().slice(0, 10)}.md`,
+    });
+
+    return interaction.editReply({
+      content:
+        `🔎 Found **${threadCount} thread(s)** with **${commentCount} user comment(s)** matching \`${query}\`.` +
+        (truncated ? "\n⚠️ Result was capped — narrow the date range for full coverage." : ""),
+      files: [file],
+    });
+  } catch (err) {
+    console.error("[ER Search] Failed:", err);
+    return interaction.editReply({
+      content: `❌ Search failed: ${err.message}`,
+    });
+  }
+}
+
 async function handleAdmin(interaction) {
   if (!hasAccess(interaction.member)) {
     return interaction.reply({
@@ -840,6 +897,9 @@ async function handleInteraction(interaction) {
       if (commandName === "pr-admin") {
         if (!db.isEnabled()) return dbDisabledReply(interaction);
         return handleAdmin(interaction);
+      }
+      if (commandName === "er-search") {
+        return handleErSearch(interaction);
       }
       return;
     }

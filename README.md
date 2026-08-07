@@ -46,6 +46,7 @@ Since almost no OOV2 markets remain, users can no longer build the 5-proposals/9
 | `/leaderboard` | everyone | Top requesters, last 6 months |
 | `/requests` | everyone | List all active requests (pending/proposed), public |
 | `/report id: reason:` | everyone | Add a community warning to a bad-faith request |
+| `/er-search query: from: [to:]` | admins | Export ER dispute-thread comments matching a title + date range as a downloadable markdown file |
 | `/pr-admin view_settings` | admins | Show runtime settings |
 | `/pr-admin set_credit_window hours:` | admins | Hours before an unproposed request expires |
 | `/pr-admin set_max_active value:` | admins | Max simultaneous active requests per user |
