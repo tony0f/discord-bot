@@ -20,11 +20,17 @@ const { buildRequestEmbed, buildDashboardEmbed } = require("./embeds");
 const { refreshDashboard } = require("./watcher");
 const {
   PROPOSAL_REQUESTS_CHANNEL_ID,
+  PROPOSAL_BOT_CHANNEL_ID,
   RISK_LABS_ROLE_ID,
   ADMIN_USER_IDS,
   QUALIFY_MIN_SETTLED,
   QUALIFY_MIN_ACCURACY,
 } = require("./config");
+
+const WELCOME_NEW_ID = "prw:new";        // welcome button: start a request
+const WELCOME_STATS_ID = "prw:stats";    // welcome button: my stats
+const WELCOME_LB_ID = "prw:lb";          // welcome button: leaderboard
+const WELCOME_LINK_MODAL_PREFIX = "prwl:"; // welcome flow: paste-the-link modal
 
 const REQUEST_MODAL_PREFIX = "prq:";     // single-market flow: outcome+evidence modal
 const COMBO_MODAL_PREFIX = "prq2:";      // event flow: evidence modal after line selection
@@ -164,27 +170,166 @@ function buildComboComponents(sessionId, combos) {
   return rows;
 }
 
+// ---------------------------------------------------------------------------
+// Welcome message for the read-only bot channel: explainer + start buttons,
+// always kept as the channel's last message.
+// ---------------------------------------------------------------------------
+let lastWelcomeId = null;
+let repostingWelcome = false;
+
+function buildWelcomePayload() {
+  const embed = new EmbedBuilder()
+    .setTitle("📋 Proposal Requests — start here")
+    .setColor(0x3b82f6)
+    .setDescription(
+      [
+        "Request that a **whitelisted proposer** proposes a Polymarket or Predict.fun market, and build your own accuracy record with every request that settles the way you called it.",
+        "",
+        "**How it works**",
+        "1. Press **🚀 New request** and paste the market or event link.",
+        "2. Pick the line(s) you want proposed — each with its own outcome.",
+        "3. Add evidence (optional, but links and details help) and submit.",
+        "",
+        `Your request card appears in <#${PROPOSAL_REQUESTS_CHANNEL_ID}> for proposers and discussion. A proposal must land within the credit window and the market must **settle exactly as you requested** to count toward your record.`,
+        "",
+        "**Rules to know**",
+        "• One request per market — first come, first served.",
+        "• Don't request too early (P4): if the event hasn't resolved yet, wait. Premature requests can be denied credit after review.",
+        `• The community can flag bad-faith requests with \`/report\` in <#${PROPOSAL_REQUESTS_CHANNEL_ID}>.`,
+      ].join("\n"),
+    )
+    .setFooter({ text: "Interactions here are private (only you see them) — the channel stays clean." });
+
+  const buttons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(WELCOME_NEW_ID).setLabel("New request").setEmoji("🚀").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(WELCOME_STATS_ID).setLabel("My stats").setEmoji("📊").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(WELCOME_LB_ID).setLabel("Leaderboard").setEmoji("🏆").setStyle(ButtonStyle.Secondary),
+  );
+
+  return { embeds: [embed], components: [buttons] };
+}
+
+async function ensureWelcomeMessage(client) {
+  if (!db.isEnabled()) return;
+  try {
+    const channel = await client.channels.fetch(PROPOSAL_BOT_CHANNEL_ID).catch(() => null);
+    if (!channel) return;
+    const settings = await db.getSettings();
+    const existingId = settings.bot_channel_welcome_id;
+    if (existingId) {
+      const existing = await channel.messages.fetch(existingId).catch(() => null);
+      if (existing) {
+        lastWelcomeId = existing.id;
+        // Refresh content in place so copy changes deploy without reposting
+        await existing.edit(buildWelcomePayload()).catch(() => {});
+        return;
+      }
+    }
+    const sent = await channel.send(buildWelcomePayload());
+    lastWelcomeId = sent.id;
+    await db.setSetting("bot_channel_welcome_id", sent.id);
+    console.log("[PR] Welcome message posted in the bot channel.");
+  } catch (err) {
+    console.warn("[PR] Could not ensure welcome message:", err.message);
+  }
+}
+
+// If anything else lands in the bot channel, repost the welcome so the start
+// button is always the channel's last message.
+async function keepWelcomeLast(client, message) {
+  if (message.channelId !== PROPOSAL_BOT_CHANNEL_ID) return;
+  if (message.id === lastWelcomeId) return;
+  if (repostingWelcome || !db.isEnabled()) return;
+  repostingWelcome = true;
+  try {
+    const channel = message.channel;
+    if (lastWelcomeId) {
+      await channel.messages.delete(lastWelcomeId).catch(() => {});
+    }
+    const sent = await channel.send(buildWelcomePayload());
+    lastWelcomeId = sent.id;
+    await db.setSetting("bot_channel_welcome_id", sent.id);
+  } catch (err) {
+    console.warn("[PR] Could not repost welcome message:", err.message);
+  } finally {
+    repostingWelcome = false;
+  }
+}
+
+// Active/daily caps shared by every entry point. Returns an error string or null.
+async function checkUserGates(userId) {
+  const settings = await db.getSettings();
+  const stats = await pr.getUserStats(userId);
+  const maxActive = parseInt(settings.max_active_per_user, 10);
+  if (stats.active >= maxActive) {
+    return `❌ You already have **${stats.active} active requests** (max ${maxActive}). Wait until some are proposed or expire.`;
+  }
+  const dailyLimit = parseInt(settings.daily_request_limit, 10);
+  if (stats.last24h >= dailyLimit) {
+    return `❌ You reached the limit of **${dailyLimit} requests per 24h**. Try again later.`;
+  }
+  return null;
+}
+
+function buildWelcomeLinkModal(interactionId) {
+  return new ModalBuilder()
+    .setCustomId(`${WELCOME_LINK_MODAL_PREFIX}${interactionId}`)
+    .setTitle("New proposal request")
+    .addLabelComponents(
+      new LabelBuilder()
+        .setLabel("Market or event link")
+        .setDescription("From polymarket.com or predict.fun")
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId("link")
+            .setPlaceholder("https://polymarket.com/event/…")
+            .setStyle(TextInputStyle.Short)
+            .setMaxLength(400)
+            .setRequired(true),
+        ),
+    );
+}
+
+// Welcome-button flow: the link arrives via modal, so the response is already
+// past showModal territory — every shape (event or single market) continues
+// in the ephemeral picker.
+async function handleWelcomeLinkSubmit(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const link = interaction.fields.getTextInputValue("link");
+  const gateError = await checkUserGates(interaction.user.id);
+  if (gateError) return interaction.editReply({ content: gateError });
+
+  let form;
+  try {
+    form = await pm.resolveLinkForForm(link);
+  } catch (err) {
+    console.warn("[PR] resolveLinkForForm failed:", err.message);
+    return interaction.editReply({
+      content: "❌ The market API took too long to answer. Please try again.",
+    });
+  }
+  if (form.error) return interaction.editReply({ content: `❌ ${form.error}` });
+
+  if (form.type === "market") {
+    form = {
+      type: "event",
+      eventTitle: form.market.title,
+      brackets: [form.market],
+      expandable: false,
+    };
+  }
+  return respondWithPicker(interaction, form, link);
+}
+
 async function handleRequestCommand(interaction) {
   // Everything here must finish within Discord's 3s window (showModal cannot
   // be deferred), so the Gamma lookup runs with a hard timeout.
   const link = interaction.options.getString("link");
 
-  const settings = await db.getSettings();
-  const stats = await pr.getUserStats(interaction.user.id);
-
-  const maxActive = parseInt(settings.max_active_per_user, 10);
-  if (stats.active >= maxActive) {
-    return interaction.reply({
-      content: `❌ You already have **${stats.active} active requests** (max ${maxActive}). Wait until some are proposed or expire.`,
-      flags: MessageFlags.Ephemeral,
-    });
-  }
-  const dailyLimit = parseInt(settings.daily_request_limit, 10);
-  if (stats.last24h >= dailyLimit) {
-    return interaction.reply({
-      content: `❌ You reached the limit of **${dailyLimit} requests per 24h**. Try again later.`,
-      flags: MessageFlags.Ephemeral,
-    });
+  const gateError = await checkUserGates(interaction.user.id);
+  if (gateError) {
+    return interaction.reply({ content: gateError, flags: MessageFlags.Ephemeral });
   }
 
   let form;
@@ -217,7 +362,13 @@ async function handleRequestCommand(interaction) {
   // --- Event flow: line×outcome pickers. Brackets come fresh from the 3PO
   // search; enrich Polymarket ones with real outcome names via Gamma. ---
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  return respondWithPicker(interaction, form, link);
+}
 
+// Ephemeral line×outcome picker for an already-deferred interaction. Used by
+// the /request event flow and by the welcome-button flow (where chaining a
+// second modal is impossible, so even single markets go through the picker).
+async function respondWithPicker(interaction, form, link) {
   let requestable = form.brackets;
 
   // Sports pages aggregate sibling events (-more-markets, -total-corners...)
@@ -562,8 +713,8 @@ async function handleMyStats(interaction) {
   return interaction.editReply({ embeds: [embed] });
 }
 
-async function handleLeaderboard(interaction) {
-  await interaction.deferReply();
+async function handleLeaderboard(interaction, ephemeral = false) {
+  await interaction.deferReply(ephemeral ? { flags: MessageFlags.Ephemeral } : {});
   const rows = await pr.getLeaderboard(15);
 
   if (rows.length === 0) {
@@ -918,11 +1069,26 @@ async function handleInteraction(interaction) {
       if (interaction.customId.startsWith(COMBO_CANCEL_PREFIX)) {
         return handleComboCancel(interaction);
       }
+      if (interaction.customId === WELCOME_NEW_ID) {
+        if (!db.isEnabled()) return dbDisabledReply(interaction);
+        return interaction.showModal(buildWelcomeLinkModal(interaction.id));
+      }
+      if (interaction.customId === WELCOME_STATS_ID) {
+        if (!db.isEnabled()) return dbDisabledReply(interaction);
+        return handleMyStats(interaction);
+      }
+      if (interaction.customId === WELCOME_LB_ID) {
+        if (!db.isEnabled()) return dbDisabledReply(interaction);
+        return handleLeaderboard(interaction, true);
+      }
       return;
     }
 
     if (interaction.isModalSubmit()) {
       if (!db.isEnabled()) return dbDisabledReply(interaction);
+      if (interaction.customId.startsWith(WELCOME_LINK_MODAL_PREFIX)) {
+        return handleWelcomeLinkSubmit(interaction);
+      }
       if (interaction.customId.startsWith(COMBO_MODAL_PREFIX)) {
         return handleComboModalSubmit(interaction);
       }
@@ -948,4 +1114,4 @@ async function handleInteraction(interaction) {
   }
 }
 
-module.exports = { handleInteraction };
+module.exports = { handleInteraction, ensureWelcomeMessage, keepWelcomeLast };

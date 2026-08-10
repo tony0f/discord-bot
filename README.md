@@ -37,6 +37,10 @@ Since almost no OOV2 markets remain, users can no longer build the 5-proposals/9
 
 **Community moderation:** anyone can `/report` an active request they believe is bad-faith — multiple users can each add one warning per request. The card turns red with a **🚨 COMMUNITY WARNINGS (N)** banner listing every reporter and reason chronologically, the live board shows them (🚩×N badge), and each report is announced publicly under the card. Admins then either `/pr-admin invalidate` the request (it never counts) or `/pr-admin clear_flag` to remove all warnings if they don't hold. **Early-resolution claims** (market end time still in the future) are allowed — per UMA rules a market is proposable as soon as its event occurs — but the card carries a ⚠️ note telling proposers to verify the evidence with extra care.
 
+### Bot channel (button flow)
+
+A read-only channel (`PROPOSAL_BOT_CHANNEL_ID`) hosts a welcome message with **🚀 New request / 📊 My stats / 🏆 Leaderboard** buttons — the friendliest entry point for new users. The bot keeps that message as the channel's **last message** (anything else posted there triggers a repost) and refreshes its copy on every deploy. "New request" opens a modal asking for the market/event link, then continues in the same ephemeral picker as `/request`; every reply in the flow is ephemeral, so the channel stays clean. Request cards still land in #proposal-requests.
+
 ### Commands
 
 | Command | Who | What |

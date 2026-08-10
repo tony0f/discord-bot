@@ -4,7 +4,7 @@ const db = require("./src/db");
 const disputeMonitor = require("./src/disputeMonitor");
 const watcher = require("./src/watcher");
 const webServer = require("./src/webServer");
-const { handleInteraction } = require("./src/interactions");
+const { handleInteraction, ensureWelcomeMessage, keepWelcomeLast } = require("./src/interactions");
 
 const client = new Client({
   intents: [
@@ -18,6 +18,9 @@ const client = new Client({
 client.on("messageCreate", (message) => {
   disputeMonitor.handleMessage(client, message).catch((err) => {
     console.error("[Dispute Monitor] Unhandled error:", err);
+  });
+  keepWelcomeLast(client, message).catch((err) => {
+    console.error("[PR] Welcome repost error:", err);
   });
 });
 
@@ -34,6 +37,7 @@ client.on("ready", () => {
 
   watcher.start(client);
   webServer.start(client);
+  ensureWelcomeMessage(client);
 });
 
 async function initializeBot() {

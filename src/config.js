@@ -16,6 +16,9 @@ module.exports = {
   // Proposal requests system
   PROPOSAL_REQUESTS_CHANNEL_ID:
     process.env.PROPOSAL_REQUESTS_CHANNEL_ID || "1423039184184279282",
+  // Read-only channel where the bot keeps its welcome message + start button
+  PROPOSAL_BOT_CHANNEL_ID:
+    process.env.PROPOSAL_BOT_CHANNEL_ID || "1536450279992721528",
 
   // Admin access: Administrator permission, this role, or an explicit user ID
   RISK_LABS_ROLE_ID: process.env.RISK_LABS_ROLE_ID || "1123485195694256158",
