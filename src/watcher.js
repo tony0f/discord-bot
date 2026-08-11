@@ -174,7 +174,8 @@ async function refreshDashboard(client) {
   const creditWindowHours = parseInt(settings.credit_window_hours, 10);
   const requests = await pr.listActiveRequests();
   const reportsMap = await pr.getReportsMap(requests.map((r) => r.id));
-  const embed = buildDashboardEmbed(requests, { creditWindowHours, reportsMap });
+  const accuracyMap = await pr.getAccuracyMap([...new Set(requests.map((r) => r.discord_user_id))]);
+  const embed = buildDashboardEmbed(requests, { creditWindowHours, reportsMap, accuracyMap });
 
   try {
     const channel = await client.channels.fetch(channelId);

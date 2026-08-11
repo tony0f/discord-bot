@@ -785,9 +785,11 @@ async function handleRequestsList(interaction, ephemeral = false) {
   const settings = await db.getSettings();
   const requests = await pr.listActiveRequests();
   const reportsMap = await pr.getReportsMap(requests.map((r) => r.id));
+  const accuracyMap = await pr.getAccuracyMap([...new Set(requests.map((r) => r.discord_user_id))]);
   const embed = buildDashboardEmbed(requests, {
     creditWindowHours: parseInt(settings.credit_window_hours, 10),
     reportsMap,
+    accuracyMap,
   });
   return interaction.editReply({ embeds: [embed] });
 }

@@ -319,6 +319,36 @@ async function getReports(requestId) {
   return res.rows;
 }
 
+// userIds -> { [id]: { correct, incorrect, settled, accuracy|null } } —
+// 6-month record used to rank and label the live board
+async function getAccuracyMap(userIds) {
+  if (!userIds || userIds.length === 0) return {};
+  const res = await db.query(
+    `SELECT discord_user_id,
+            COUNT(*) FILTER (WHERE status = 'settled_correct'
+              AND settled_at > now() - interval '6 months')::int AS correct,
+            COUNT(*) FILTER (WHERE status IN ('settled_incorrect','credit_denied')
+              AND settled_at > now() - interval '6 months')::int AS incorrect
+     FROM proposal_requests
+     WHERE discord_user_id = ANY($1)
+     GROUP BY discord_user_id`,
+    [userIds],
+  );
+  const map = {};
+  for (const row of res.rows) {
+    const correct = Number(row.correct);
+    const incorrect = Number(row.incorrect);
+    const settled = correct + incorrect;
+    map[row.discord_user_id] = {
+      correct,
+      incorrect,
+      settled,
+      accuracy: settled > 0 ? correct / settled : null,
+    };
+  }
+  return map;
+}
+
 // requestIds -> { [id]: reports[] } for rendering lists efficiently
 async function getReportsMap(requestIds) {
   if (!requestIds || requestIds.length === 0) return {};
@@ -357,5 +387,6 @@ module.exports = {
   reportRequest,
   getReports,
   getReportsMap,
+  getAccuracyMap,
   clearReports,
 };

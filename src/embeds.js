@@ -138,22 +138,39 @@ function buildRequestEmbed(request, { creditWindowHours, reports = [] } = {}) {
   return embed;
 }
 
-function buildDashboardEmbed(requests, { creditWindowHours, reportsMap = {} }) {
+function requesterRecordLine(record) {
+  if (!record || record.settled === 0) {
+    return "🆕 no settled requests yet";
+  }
+  return `🎯 ${record.correct}✅ · ${record.incorrect}❌ · **${(record.accuracy * 100).toFixed(record.accuracy === 1 ? 0 : 1)}% accuracy**`;
+}
+
+function buildDashboardEmbed(requests, { creditWindowHours, reportsMap = {}, accuracyMap = {} }) {
   const embed = new EmbedBuilder()
     .setTitle("📋 Proposal Requests — Live Board")
     .setColor(0x9b59b6)
     .setTimestamp(new Date());
 
   const dyorNotice =
-    "🔍 **DYOR** — Proposers: verify every claim, its evidence and the market rules yourself before proposing.";
+    "🔍 **DYOR** — Proposers: verify every claim, its evidence and the market rules yourself before proposing.\n" +
+    "🎯 **Ranked by requester accuracy** (settled requests, last 6 months) — proven requesters float to the top.";
 
   if (requests.length === 0) {
     embed.setDescription(`${dyorNotice}\n\nNo active requests right now. Use \`/request\` to add one.`);
     return embed;
   }
 
+  // Highest requester accuracy first; unproven requesters last; ties keep
+  // request order (oldest first)
+  const sorted = [...requests].sort((a, b) => {
+    const accA = accuracyMap[a.discord_user_id]?.settled > 0 ? accuracyMap[a.discord_user_id].accuracy : -1;
+    const accB = accuracyMap[b.discord_user_id]?.settled > 0 ? accuracyMap[b.discord_user_id].accuracy : -1;
+    if (accA !== accB) return accB - accA;
+    return new Date(a.created_at) - new Date(b.created_at);
+  });
+
   const blocks = [];
-  for (const r of requests.slice(0, 15)) {
+  for (const r of sorted.slice(0, 15)) {
     const statusEmoji = r.status === "proposed" ? "📤" : "⏳";
     const reports = reportsMap[r.id] || [];
     const badges =
@@ -162,7 +179,7 @@ function buildDashboardEmbed(requests, { creditWindowHours, reportsMap = {} }) {
     const lines = [
       `${statusEmoji} **#${r.id} — [${truncate(r.market_question, 90)}](${r.market_url})** ${badges}`.trimEnd(),
       `> **Propose as:** ${r.requested_outcome}`,
-      `> **Requested by:** <@${r.discord_user_id}>`,
+      `> **Requested by:** <@${r.discord_user_id}> — ${requesterRecordLine(accuracyMap[r.discord_user_id])}`,
     ];
     if (r.evidence) {
       const evidenceUrls = r.evidence.match(/https?:\/\/[^\s<>()'"]+/g) || [];
