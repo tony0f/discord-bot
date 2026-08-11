@@ -28,9 +28,12 @@ const {
 } = require("./config");
 
 const WELCOME_NEW_ID = "prw:new";        // welcome button: start a request
+const WELCOME_LIST_ID = "prw:list";      // welcome button: active requests board
+const WELCOME_REPORT_ID = "prw:report";  // welcome button: add a community warning
 const WELCOME_STATS_ID = "prw:stats";    // welcome button: my stats
 const WELCOME_LB_ID = "prw:lb";          // welcome button: leaderboard
 const WELCOME_LINK_MODAL_PREFIX = "prwl:"; // welcome flow: paste-the-link modal
+const WELCOME_REPORT_MODAL_PREFIX = "prwr:"; // welcome flow: report modal
 
 const REQUEST_MODAL_PREFIX = "prq:";     // single-market flow: outcome+evidence modal
 const COMBO_MODAL_PREFIX = "prq2:";      // event flow: evidence modal after line selection
@@ -195,13 +198,15 @@ function buildWelcomePayload() {
         "**Rules to know**",
         "• One request per market — first come, first served.",
         "• Don't request too early (P4): if the event hasn't resolved yet, wait. Premature requests can be denied credit after review.",
-        `• The community can flag bad-faith requests with \`/report\` in <#${PROPOSAL_REQUESTS_CHANNEL_ID}>.`,
+        "• See something off? Flag it with **🚩 Report** below (you'll need the request # from its card).",
       ].join("\n"),
     )
     .setFooter({ text: "Interactions here are private (only you see them) — the channel stays clean." });
 
   const buttons = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(WELCOME_NEW_ID).setLabel("New request").setEmoji("🚀").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(WELCOME_LIST_ID).setLabel("Active requests").setEmoji("📋").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(WELCOME_REPORT_ID).setLabel("Report").setEmoji("🚩").setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(WELCOME_STATS_ID).setLabel("My stats").setEmoji("📊").setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(WELCOME_LB_ID).setLabel("Leaderboard").setEmoji("🏆").setStyle(ButtonStyle.Secondary),
   );
@@ -288,6 +293,48 @@ function buildWelcomeLinkModal(interactionId) {
             .setRequired(true),
         ),
     );
+}
+
+function buildWelcomeReportModal(interactionId) {
+  return new ModalBuilder()
+    .setCustomId(`${WELCOME_REPORT_MODAL_PREFIX}${interactionId}`)
+    .setTitle("Report a request")
+    .addLabelComponents(
+      new LabelBuilder()
+        .setLabel("Request number")
+        .setDescription("The # shown on the request card (e.g. 50)")
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId("request_id")
+            .setPlaceholder("50")
+            .setStyle(TextInputStyle.Short)
+            .setMaxLength(10)
+            .setRequired(true),
+        ),
+      new LabelBuilder()
+        .setLabel("Why this request should not be trusted")
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId("reason")
+            .setPlaceholder("Too early (P4), wrong outcome, fake evidence…")
+            .setStyle(TextInputStyle.Paragraph)
+            .setMaxLength(500)
+            .setRequired(true),
+        ),
+    );
+}
+
+async function handleWelcomeReportSubmit(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const rawId = interaction.fields.getTextInputValue("request_id").replace(/[#\s]/g, "");
+  const id = parseInt(rawId, 10);
+  if (Number.isNaN(id) || id <= 0) {
+    return interaction.editReply({
+      content: `❌ \`${rawId}\` is not a valid request number. Find the # in the card footer in <#${PROPOSAL_REQUESTS_CHANNEL_ID}>.`,
+    });
+  }
+  const reason = interaction.fields.getTextInputValue("reason");
+  return executeReport(interaction, id, reason);
 }
 
 // Welcome-button flow: the link arrives via modal, so the response is already
@@ -695,7 +742,7 @@ async function handleMyStats(interaction) {
 
   const embed = new EmbedBuilder()
     .setTitle(`📊 Proposal-request stats — ${interaction.member?.displayName || interaction.user.username}`)
-    .setColor(stats.qualified ? 0x2ecc71 : 0x3498db)
+    .setColor(0x3498db)
     .addFields(
       { name: "Active (pending/proposed)", value: `${stats.active}`, inline: true },
       { name: "Settled correct (6m)", value: `${stats.correct6m}`, inline: true },
@@ -703,12 +750,6 @@ async function handleMyStats(interaction) {
       { name: "Accuracy (6m)", value: accuracyText, inline: true },
       { name: "Expired (no proposal)", value: `${stats.expired}`, inline: true },
       { name: "Total requests", value: `${stats.total}`, inline: true },
-      {
-        name: "Progress",
-        value: stats.qualified
-          ? `🎓 **Record complete:** ${stats.settled6m} settled requests with ${(stats.accuracy6m * 100).toFixed(1)}% accuracy in the last 6 months.`
-          : `**${stats.settled6m}/${QUALIFY_MIN_SETTLED}** settled requests with ≥${QUALIFY_MIN_ACCURACY * 100}% accuracy in the last 6 months.`,
-      },
     );
   return interaction.editReply({ embeds: [embed] });
 }
@@ -738,8 +779,9 @@ async function handleLeaderboard(interaction, ephemeral = false) {
   return interaction.editReply({ embeds: [embed] });
 }
 
-async function handleRequestsList(interaction) {
-  await interaction.deferReply(); // public: proposers browse this together
+async function handleRequestsList(interaction, ephemeral = false) {
+  // public by default: proposers browse this together
+  await interaction.deferReply(ephemeral ? { flags: MessageFlags.Ephemeral } : {});
   const settings = await db.getSettings();
   const requests = await pr.listActiveRequests();
   const reportsMap = await pr.getReportsMap(requests.map((r) => r.id));
@@ -754,7 +796,11 @@ async function handleReport(interaction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const id = interaction.options.getInteger("id");
   const reason = interaction.options.getString("reason");
+  return executeReport(interaction, id, reason);
+}
 
+// Shared by /report and the welcome-channel Report button (already deferred)
+async function executeReport(interaction, id, reason) {
   const result = await pr.reportRequest(id, interaction.user, reason);
   if (!result.ok) {
     return interaction.editReply({ content: `❌ ${result.error}` });
@@ -1073,6 +1119,14 @@ async function handleInteraction(interaction) {
         if (!db.isEnabled()) return dbDisabledReply(interaction);
         return interaction.showModal(buildWelcomeLinkModal(interaction.id));
       }
+      if (interaction.customId === WELCOME_LIST_ID) {
+        if (!db.isEnabled()) return dbDisabledReply(interaction);
+        return handleRequestsList(interaction, true);
+      }
+      if (interaction.customId === WELCOME_REPORT_ID) {
+        if (!db.isEnabled()) return dbDisabledReply(interaction);
+        return interaction.showModal(buildWelcomeReportModal(interaction.id));
+      }
       if (interaction.customId === WELCOME_STATS_ID) {
         if (!db.isEnabled()) return dbDisabledReply(interaction);
         return handleMyStats(interaction);
@@ -1088,6 +1142,9 @@ async function handleInteraction(interaction) {
       if (!db.isEnabled()) return dbDisabledReply(interaction);
       if (interaction.customId.startsWith(WELCOME_LINK_MODAL_PREFIX)) {
         return handleWelcomeLinkSubmit(interaction);
+      }
+      if (interaction.customId.startsWith(WELCOME_REPORT_MODAL_PREFIX)) {
+        return handleWelcomeReportSubmit(interaction);
       }
       if (interaction.customId.startsWith(COMBO_MODAL_PREFIX)) {
         return handleComboModalSubmit(interaction);
