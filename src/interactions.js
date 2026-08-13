@@ -199,8 +199,6 @@ function buildWelcomePayload() {
         "• One request per market — first come, first served.",
         "• Don't request too early (P4): if the event hasn't resolved yet, wait. Premature requests can be denied credit after review.",
         "• See something off? Flag it with **🚩 Report** below (you'll need the request # from its card).",
-        "",
-        "🔒 [Privacy policy](https://proposal-requests.up.railway.app/privacy)",
       ].join("\n"),
     )
     .setFooter({ text: "Interactions here are private (only you see them) — the channel stays clean." });

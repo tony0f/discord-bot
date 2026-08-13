@@ -326,36 +326,6 @@ function start(client) {
     }
   });
 
-  // ---- Public privacy policy (linked from Discord's intent review) ----
-  app.get("/privacy", (req, res) => {
-    res.type("html").send(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>UMABot — Privacy Policy</title>
-<style>
-  body{background:#070a0f;color:#e6eaf2;font:16px/1.65 system-ui,sans-serif;margin:0;padding:2rem 1rem}
-  main{max-width:720px;margin:0 auto}h1{font-size:1.5rem}h2{font-size:1.1rem;margin-top:2rem}
-  p,li{color:#b9c2d4}a{color:#3b82f6}
-</style></head><body><main>
-<h1>UMABot — Privacy Policy</h1>
-<p>UMABot is a utility bot operated by the UMA / Risk Labs team, running exclusively in the official UMA Protocol Discord server.</p>
-<h2>What the bot processes</h2>
-<ul>
-<li><strong>Message content</strong> is read only inside the server's dispute-threads channel, for two purposes: enforcing that channel's participation rules and, on admin request, exporting the comments (verdicts and evidence links) of a dispute thread as a markdown file for dispute review. Content is processed in memory; exports are delivered back into Discord as attachments. Message content is never stored in our database or sent to third parties.</li>
-<li><strong>Interaction data</strong> you submit deliberately (proposal requests: market link, chosen outcome, evidence text, plus your Discord user ID and username) is stored in our database to track the request's lifecycle and build public accuracy records shown in the server.</li>
-<li><strong>Community warnings</strong> (reporter username and reason) are stored and shown publicly on the reported request.</li>
-</ul>
-<h2>What the bot does not do</h2>
-<ul>
-<li>No message content is stored off-platform.</li>
-<li>No data is sold, shared with third parties, or used to train machine-learning or AI models.</li>
-<li>No tracking outside the channels and interactions described above.</li>
-</ul>
-<h2>Retention & contact</h2>
-<p>Proposal-request records are kept to maintain the accuracy history of the system. Admins can delete a request and its Discord messages on demand. For questions or data-removal requests, contact the UMA team on the UMA Discord server or at <a href="https://uma.xyz">uma.xyz</a>.</p>
-<p style="color:#5f6b82;margin-top:2rem">Last updated: August 2026</p>
-</main></body></html>`);
-  });
-
   // ---- Static dashboard ----
   const distDir = path.join(__dirname, "..", "dashboard", "dist");
   app.use(express.static(distDir));
