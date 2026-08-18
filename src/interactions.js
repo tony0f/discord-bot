@@ -465,8 +465,13 @@ async function respondWithPicker(interaction, form, link) {
     const outcomes = gammaOutcomes.length > 0 ? gammaOutcomes : ["Yes", "No"];
     const market = { slug: bracket.slug, question: bracket.title };
     const title = gamma?.groupItemTitle || bracket.title;
-    // The outcome must never be truncated away — it is what tells options apart
+    // The outcome must never be hidden — it is what tells options apart.
+    // Discord's client visually clips labels around ~40 chars, so long
+    // titles would swallow a trailing outcome: lead with the outcome then.
     const buildLabel = (outcome) => {
+      if (title.length > 38) {
+        return truncate(`${outcome} — ${title}`, 100);
+      }
       const room = Math.max(20, 100 - (outcome.length + 3));
       return truncate(`${truncate(title, room)} → ${outcome}`, 100);
     };
