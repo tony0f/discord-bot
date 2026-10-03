@@ -174,9 +174,9 @@ export default function Requests() {
                     <td className="whitespace-nowrap px-4 py-3 text-xs text-ink-3">{timeAgo(r.created_at)}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-right">
                       <div className="inline-flex gap-1">
-                        {r.status === "under_review" && (
+                        {["under_review", "credit_denied"].includes(r.status) && (
                           <button
-                            title="Approve credit"
+                            title={r.status === "credit_denied" ? "Restore credit (reverse denial)" : "Approve credit"}
                             aria-label={`Approve credit for request ${r.id}`}
                             onClick={() => setAction({ type: "approve", request: r })}
                             className="cursor-pointer rounded-lg p-2 text-s-correct transition-colors hover:bg-s-correct/15"
@@ -300,8 +300,9 @@ export default function Requests() {
           )}
           {action.type === "approve" && (
             <p className="text-sm text-ink-2">
-              This confirms the held credit: the request becomes <strong>settled correct</strong>, counts
-              toward the user's record, and the result is announced in Discord.
+              {action.request.status === "credit_denied"
+                ? "This reverses the denial: the request becomes settled correct, counts toward the user's record, and the correction is announced in Discord."
+                : "This confirms the held credit: the request becomes settled correct, counts toward the user's record, and the result is announced in Discord."}
             </p>
           )}
           <div className="mt-4 flex justify-end gap-2">

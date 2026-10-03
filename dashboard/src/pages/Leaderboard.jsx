@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Trophy, Phone, ShieldCheck, Pencil } from "lucide-react";
+import { Trophy, Phone, ShieldCheck, Pencil, Search } from "lucide-react";
 import { api } from "../api.js";
 import { Card, EmptyState, Button, Modal } from "../ui.jsx";
 
@@ -26,6 +26,7 @@ function FlagChip({ active, busy, onClick, icon: Icon, label, activeClass }) {
 
 export default function Leaderboard() {
   const [rows, setRows] = useState(null);
+  const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState(null);
   const [editing, setEditing] = useState(null); // row being edited (wallet/note)
@@ -73,14 +74,32 @@ export default function Leaderboard() {
     }
   };
 
+  const visible = rows
+    ? rows
+        .map((r, i) => ({ ...r, rank: i + 1 }))
+        .filter((r) => !search.trim() || r.username.toLowerCase().includes(search.trim().toLowerCase()))
+    : null;
+
   return (
     <div className="space-y-5">
-      <header>
-        <h1 className="text-xl font-semibold">Leaderboard</h1>
-        <p className="mt-0.5 text-sm text-ink-3">
-          Settled requests, rolling 6 months · 🎓 = 5+ settled with ≥95% accuracy ·
-          whitelist tracking is internal (never shown in Discord)
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">Leaderboard</h1>
+          <p className="mt-0.5 text-sm text-ink-3">
+            {rows ? `${rows.length} user(s) with settled requests · ` : ""}rolling 6 months · 🎓 = 5+ settled with ≥95% accuracy ·
+            whitelist tracking is internal (never shown in Discord)
+          </p>
+        </div>
+        <div className="relative">
+          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-3" aria-hidden />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search user…"
+            aria-label="Search users"
+            className="w-56 rounded-lg border border-edge bg-surface py-2 pl-9 pr-3 text-sm outline-none transition-colors focus:border-primary"
+          />
+        </div>
       </header>
 
       <Card className="overflow-x-auto p-0">
@@ -90,6 +109,8 @@ export default function Leaderboard() {
           <EmptyState>Loading…</EmptyState>
         ) : rows.length === 0 ? (
           <EmptyState>No settled requests in the last 6 months yet.</EmptyState>
+        ) : visible.length === 0 ? (
+          <EmptyState>No users match “{search}”.</EmptyState>
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -106,16 +127,16 @@ export default function Leaderboard() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => {
+              {visible.map((r) => {
                 const qualified = r.settled >= 5 && r.accuracy >= 0.95;
                 const flags = r.flags || {};
                 const busy = busyId === r.userId;
                 return (
                   <tr key={r.userId} className="border-b border-edge/60 last:border-0 hover:bg-surface-2/50">
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1.5 font-mono text-xs tabular-nums ${MEDALS[i] || "text-ink-3"}`}>
-                        {i < 3 && <Trophy size={13} aria-hidden />}
-                        {i + 1}
+                      <span className={`inline-flex items-center gap-1.5 font-mono text-xs tabular-nums ${MEDALS[r.rank - 1] || "text-ink-3"}`}>
+                        {r.rank <= 3 && <Trophy size={13} aria-hidden />}
+                        {r.rank}
                       </span>
                     </td>
                     <td className="px-4 py-3 font-medium">

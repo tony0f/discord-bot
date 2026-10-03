@@ -226,8 +226,9 @@ function start(client) {
       const id = parseInt(req.params.id, 10);
       const request = await pr.getRequestById(id);
       if (!request) return res.status(404).json({ error: "Request not found." });
-      if (request.status !== "under_review") {
-        return res.status(409).json({ error: "Only under-review requests can have credit approved." });
+      // under_review → first-time approval; credit_denied → admin reversal
+      if (!["under_review", "credit_denied"].includes(request.status)) {
+        return res.status(409).json({ error: "Only under-review or credit-denied requests can have credit approved." });
       }
       const updated = await pr.updateRequestStatus(id, {
         status: "settled_correct",
@@ -287,7 +288,7 @@ function start(client) {
 
   app.get("/api/leaderboard", requireAuth, async (req, res, next) => {
     try {
-      const leaderboard = await pr.getLeaderboard(50);
+      const leaderboard = await pr.getLeaderboard(500);
       const ids = leaderboard.map((r) => r.userId);
       const flags = ids.length
         ? await db.query(`SELECT * FROM user_flags WHERE discord_user_id = ANY($1)`, [ids])

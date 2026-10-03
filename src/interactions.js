@@ -1010,9 +1010,10 @@ async function handleAdmin(interaction) {
     if (!request) {
       return interaction.editReply({ content: `❌ Request #${id} not found.` });
     }
-    if (request.status !== "under_review") {
+    // under_review → first-time approval; credit_denied → admin reversal
+    if (!["under_review", "credit_denied"].includes(request.status)) {
       return interaction.editReply({
-        content: `⚠️ Request #${id} is not under review (status: \`${request.status}\`).`,
+        content: `⚠️ Request #${id} is not under review or credit-denied (status: \`${request.status}\`).`,
       });
     }
 
