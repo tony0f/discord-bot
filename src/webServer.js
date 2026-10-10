@@ -5,6 +5,8 @@ const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 const db = require("./db");
 const pr = require("./proposalRequests");
+const { registerDiscordProxy } = require("./discordProxy");
+
 
 const PASSWORD = process.env.DASHBOARD_PASSWORD;
 const SESSION_SECRET =
@@ -381,6 +383,8 @@ function start(client) {
       next(err);
     }
   });
+
+  registerDiscordProxy(app, client);
 
   // ---- Static dashboard ----
   const distDir = path.join(__dirname, "..", "dashboard", "dist");
