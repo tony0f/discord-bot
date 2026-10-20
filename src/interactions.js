@@ -35,8 +35,7 @@ const WELCOME_LB_ID = "prw:lb";          // welcome button: leaderboard
 const WELCOME_LINK_MODAL_PREFIX = "prwl:"; // welcome flow: paste-the-link modal
 const WELCOME_REPORT_MODAL_PREFIX = "prwr:"; // welcome flow: report modal
 
-const REQUEST_MODAL_PREFIX = "prq:";     // single-market flow: outcome+evidence modal
-const COMBO_MODAL_PREFIX = "prq2:";      // event flow: evidence modal after line selection
+const COMBO_MODAL_PREFIX = "prq2:";      // evidence modal after line selection
 const COMBO_SELECT_PREFIX = "prqsel:";   // event flow: line→outcome select menus
 const COMBO_GO_PREFIX = "prqgo:";        // event flow: Continue button
 const COMBO_CANCEL_PREFIX = "prqcancel:"; // event flow: Cancel button
@@ -92,32 +91,6 @@ function evidenceLabel() {
         .setStyle(TextInputStyle.Paragraph)
         .setMaxLength(4000)
         .setRequired(false),
-    );
-}
-
-// Single-market flow: one modal with the market's real outcomes + evidence.
-function buildSingleMarketModal(interactionId, market) {
-  const outcomeOptions = [...(market.outcomes || ["Yes", "No"]), pm.TIE_OUTCOME];
-  return new ModalBuilder()
-    .setCustomId(`${REQUEST_MODAL_PREFIX}${interactionId}`)
-    .setTitle("Request a market proposal")
-    .addLabelComponents(
-      new LabelBuilder()
-        .setLabel("Proposed outcome")
-        .setDescription(truncate(market.question, 100))
-        .setStringSelectMenuComponent(
-          new StringSelectMenuBuilder()
-            .setCustomId("outcome")
-            .setMinValues(1)
-            .setMaxValues(1)
-            .addOptions(
-              outcomeOptions.slice(0, 25).map((o) => ({
-                label: truncate(o, 100),
-                value: truncate(o, 100),
-              })),
-            ),
-        ),
-      evidenceLabel(),
     );
 }
 
@@ -369,46 +342,40 @@ async function handleWelcomeLinkSubmit(interaction) {
   return respondWithPicker(interaction, form, link);
 }
 
+// /request defers immediately and ALWAYS continues in the ephemeral picker
+// (like the welcome-button flow): the old direct-modal fast path for single
+// markets required answering within Discord's 3s window, which big events
+// (slow 3PO/Gamma resolution) and busy moments kept blowing past.
 async function handleRequestCommand(interaction) {
-  // Everything here must finish within Discord's 3s window (showModal cannot
-  // be deferred), so the Gamma lookup runs with a hard timeout.
   const link = interaction.options.getString("link");
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const gateError = await checkUserGates(interaction.user.id);
   if (gateError) {
-    return interaction.reply({ content: gateError, flags: MessageFlags.Ephemeral });
+    return interaction.editReply({ content: gateError });
   }
 
   let form;
   try {
-    form = await withTimeout(pm.resolveLinkForForm(link), 2200);
+    form = await withTimeout(pm.resolveLinkForForm(link), 15000);
   } catch (err) {
     console.warn("[PR] resolveLinkForForm failed:", err.message);
-    return interaction.reply({
-      content: "❌ The Polymarket API took too long to answer. Please try again.",
-      flags: MessageFlags.Ephemeral,
+    return interaction.editReply({
+      content: "❌ The market API took too long to answer. Please try again.",
     });
   }
   if (form.error) {
-    return interaction.reply({ content: `❌ ${form.error}`, flags: MessageFlags.Ephemeral });
+    return interaction.editReply({ content: `❌ ${form.error}` });
   }
 
-  // --- Single-market flow: straight to the modal (cannot defer showModal) ---
-  // resolveLinkForForm only returns requestable markets, so no extra gates.
   if (form.type === "market") {
-    pruneForms();
-    pendingForms.set(interaction.id, {
-      kind: "market",
-      marketSlug: form.market.slug,
-      sourceUrl: link,
-      createdAt: Date.now(),
-    });
-    return interaction.showModal(buildSingleMarketModal(interaction.id, form.market));
+    form = {
+      type: "event",
+      eventTitle: form.market.title,
+      brackets: [form.market],
+      expandable: false,
+    };
   }
-
-  // --- Event flow: line×outcome pickers. Brackets come fresh from the 3PO
-  // search; enrich Polymarket ones with real outcome names via Gamma. ---
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   return respondWithPicker(interaction, form, link);
 }
 
@@ -477,7 +444,6 @@ async function respondWithPicker(interaction, form, link) {
     };
     for (let i = 0; i < outcomes.length; i++) {
       combos.push({
-        value: `${market.slug}|${i}`,
         slug: market.slug,
         outcome: outcomes[i],
         label: buildLabel(outcomes[i]),
@@ -485,13 +451,17 @@ async function respondWithPicker(interaction, form, link) {
       });
     }
     combos.push({
-      value: `${market.slug}|tie`,
       slug: market.slug,
       outcome: pm.TIE_OUTCOME,
       label: buildLabel(`${pm.TIE_OUTCOME} (P3)`),
       question: market.question,
     });
   }
+  // Opaque session-local values: Discord caps option values at 100 chars and
+  // some market slugs alone exceed 160 — the real data lives in the session map
+  combos.forEach((combo, index) => {
+    combo.value = String(index);
+  });
   const shown = combos.slice(0, MAX_COMBO_SELECTS * 25);
 
   pruneForms();
@@ -607,30 +577,6 @@ async function processRequests(interaction, items, evidence, sourceUrl) {
     );
   }
   return truncate(lines.join("\n"), 2000);
-}
-
-async function handleRequestModalSubmit(interaction) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-  const formKey = interaction.customId.slice(REQUEST_MODAL_PREFIX.length);
-  const form = pendingForms.get(formKey);
-  pendingForms.delete(formKey);
-  if (!form || form.kind !== "market") {
-    return interaction.editReply({
-      content: "❌ This form expired (or the bot restarted). Please run `/request` again.",
-    });
-  }
-
-  const outcome = interaction.fields.getStringSelectValues("outcome")[0];
-  const evidence = interaction.fields.getTextInputValue("evidence") || "";
-
-  const content = await processRequests(
-    interaction,
-    [{ slug: form.marketSlug, outcome }],
-    evidence,
-    form.sourceUrl,
-  );
-  return interaction.editReply({ content });
 }
 
 async function handleComboSelect(interaction) {
@@ -1156,9 +1102,6 @@ async function handleInteraction(interaction) {
       }
       if (interaction.customId.startsWith(COMBO_MODAL_PREFIX)) {
         return handleComboModalSubmit(interaction);
-      }
-      if (interaction.customId.startsWith(REQUEST_MODAL_PREFIX)) {
-        return handleRequestModalSubmit(interaction);
       }
     }
   } catch (err) {
