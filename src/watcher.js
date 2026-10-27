@@ -1,4 +1,4 @@
-﻿const db = require("./db");
+const db = require("./db");
 const pm = require("./polymarket");
 const tp = require("./threepo");
 const pr = require("./proposalRequests");
@@ -25,7 +25,7 @@ function isBinaryYesNo(request) {
 // 3PO maps p-values to Yes/No, which is only literal for binary Yes/No
 // markets. For two named outcomes (teams, Over/Under) the CTF adapter
 // convention is fixed: p2 pays out the FIRST outcome, p1 the SECOND
-// (resolved p2 â†’ outcomePrices ["1","0"]) â€” confirmed against the UMA
+// (resolved p2 → outcomePrices ["1","0"]) — confirmed against the UMA
 // explorer's decoded values (P2 = PCIFIC, P1 = Under).
 function labelForRequest(request, tpLabel) {
   if (!tpLabel) return null;
@@ -56,7 +56,7 @@ async function resolveWinner(request, res) {
       console.warn(`${logPrefix} Gamma winner fallback failed for #${request.id}:`, err.message);
     }
   }
-  return null; // indeterminate â€” retry next cycle
+  return null; // indeterminate — retry next cycle
 }
 
 async function editRequestMessage(client, request) {
@@ -84,8 +84,8 @@ async function notifyResult(client, request) {
     const channel = await client.channels.fetch(PROPOSAL_REQUESTS_CHANNEL_ID);
     const correct = request.status === "settled_correct";
     const content = correct
-      ? `âœ… Request **#${request.id}** by <@${request.discord_user_id}> settled as requested (**${request.settled_outcome}**). Credited to their record!`
-      : `âŒ Request **#${request.id}** by <@${request.discord_user_id}> settled as **${request.settled_outcome}** (they requested **${request.requested_outcome}**). Counted as incorrect.`;
+      ? `✅ Request **#${request.id}** by <@${request.discord_user_id}> settled as requested (**${request.settled_outcome}**). Credited to their record!`
+      : `❌ Request **#${request.id}** by <@${request.discord_user_id}> settled as **${request.settled_outcome}** (they requested **${request.requested_outcome}**). Counted as incorrect.`;
 
     const payload = { content };
     if (request.message_id) {
@@ -105,8 +105,8 @@ async function notifyReview(client, request) {
     const channel = await client.channels.fetch(PROPOSAL_REQUESTS_CHANNEL_ID);
     const payload = {
       content:
-        `ðŸŸ¡ Request **#${request.id}** by <@${request.discord_user_id}> settled as requested (**${request.settled_outcome}**), ` +
-        `but it carried community warnings from before the proposal â€” **credit is under admin review**.`,
+        `🟡 Request **#${request.id}** by <@${request.discord_user_id}> settled as requested (**${request.settled_outcome}**), ` +
+        `but it carried community warnings from before the proposal — **credit is under admin review**.`,
     };
     if (request.message_id) {
       payload.reply = { messageReference: request.message_id, failIfNotExists: false };
@@ -187,7 +187,7 @@ async function refreshDashboard(client) {
         await message.edit({ embeds: [embed] });
         return;
       } catch {
-        // Message was deleted â€” fall through and post a new one
+        // Message was deleted — fall through and post a new one
       }
     }
     const newMessage = await channel.send({ embeds: [embed] });
@@ -223,7 +223,7 @@ async function runCycle(client) {
       try {
         const channel = await client.channels.fetch(PROPOSAL_REQUESTS_CHANNEL_ID);
         const payload = {
-          content: `âœ… **Correction:** request **#${request.id}** by <@${request.discord_user_id}> settled exactly as requested (**50-50**) â€” the earlier "incorrect" verdict was a labeling bug on our side. Credited to their record.`,
+          content: `✅ **Correction:** request **#${request.id}** by <@${request.discord_user_id}> settled exactly as requested (**50-50**) — the earlier "incorrect" verdict was a labeling bug on our side. Credited to their record.`,
         };
         if (request.message_id) {
           payload.reply = { messageReference: request.message_id, failIfNotExists: false };
@@ -253,14 +253,14 @@ async function runCycle(client) {
         status: held ? "under_review" : "settled_correct",
         settled_outcome: request.requested_outcome,
       });
-      console.log(`${logPrefix} Repaired whitespace-mismatched settlement on #${request.id} â†’ ${updated.status}.`);
+      console.log(`${logPrefix} Repaired whitespace-mismatched settlement on #${request.id} → ${updated.status}.`);
       await editRequestMessage(client, updated);
       try {
         const channel = await client.channels.fetch(PROPOSAL_REQUESTS_CHANNEL_ID);
         const payload = {
           content: held
-            ? `ðŸŸ¡ **Correction:** request **#${request.id}** by <@${request.discord_user_id}> actually settled as requested (**${updated.settled_outcome}**) â€” the "incorrect" verdict was a labeling bug. It carried pre-proposal community warnings, so **credit is under admin review**.`
-            : `âœ… **Correction:** request **#${request.id}** by <@${request.discord_user_id}> settled exactly as requested (**${updated.settled_outcome}**) â€” the earlier "incorrect" verdict was a labeling bug on our side. Credited to their record.`,
+            ? `🟡 **Correction:** request **#${request.id}** by <@${request.discord_user_id}> actually settled as requested (**${updated.settled_outcome}**) — the "incorrect" verdict was a labeling bug. It carried pre-proposal community warnings, so **credit is under admin review**.`
+            : `✅ **Correction:** request **#${request.id}** by <@${request.discord_user_id}> settled exactly as requested (**${updated.settled_outcome}**) — the earlier "incorrect" verdict was a labeling bug on our side. Credited to their record.`,
         };
         if (request.message_id) {
           payload.reply = { messageReference: request.message_id, failIfNotExists: false };
@@ -288,7 +288,7 @@ async function runCycle(client) {
       try {
         const channel = await client.channels.fetch(PROPOSAL_REQUESTS_CHANNEL_ID);
         const payload = {
-          content: `âŒ Request **#${request.id}** by <@${request.discord_user_id}>: credit was **denied after admin review** â€” requesting it at that moment would have caused a P4/dispute. Counted as **incorrect**.`,
+          content: `❌ Request **#${request.id}** by <@${request.discord_user_id}>: credit was **denied after admin review** — requesting it at that moment would have caused a P4/dispute. Counted as **incorrect**.`,
         };
         if (request.message_id) {
           payload.reply = { messageReference: request.message_id, failIfNotExists: false };
@@ -368,7 +368,7 @@ async function runCycle(client) {
         let status = correct ? "settled_correct" : "settled_incorrect";
         // Correct settlements that carried a community warning BEFORE the
         // proposal (e.g. a genuine "too early / P4" flag) are not credited
-        // automatically â€” an admin approves or invalidates.
+        // automatically — an admin approves or invalidates.
         if (correct) {
           const reports = await pr.getReports(request.id);
           const proposedAt = new Date(request.proposed_at || Date.now());
@@ -389,7 +389,7 @@ async function runCycle(client) {
           fields.proposer_address = await onchain.getProposer(res.proposeTx, request.creation_source);
         }
         const updated = await pr.updateRequestStatus(request.id, fields);
-        console.log(`${logPrefix} Request #${request.id} settled â†’ ${status} (winner: ${winner}).`);
+        console.log(`${logPrefix} Request #${request.id} settled → ${status} (winner: ${winner}).`);
         await editRequestMessage(client, updated);
         if (status === "under_review") {
           await notifyReview(client, updated);
@@ -420,7 +420,7 @@ async function runCycle(client) {
           await editRequestMessage(client, updated);
         }
       } else if (request.status === "proposed") {
-        // Proposal knocked out (disputed / extended review) â€” a fresh proposal
+        // Proposal knocked out (disputed / extended review) — a fresh proposal
         // is needed. Revert; the window keeps counting from created_at.
         const updated = await pr.updateRequestStatus(request.id, {
           status: "pending",
@@ -448,7 +448,7 @@ async function runCycle(client) {
 // Self-rescheduling loop so poll-interval changes apply without a restart.
 function start(client) {
   if (!db.isEnabled()) {
-    console.warn(`${logPrefix} Database disabled â€” watcher not started.`);
+    console.warn(`${logPrefix} Database disabled — watcher not started.`);
     return;
   }
 
