@@ -1,12 +1,17 @@
-// Support-tickets keeper: Tickety (threads mode) tickets auto-archive after
-// 7 days of inactivity even when the ticket is still open, hiding them from
-// the team. Once a day this module walks every archived thread in
-// #support-tickets, un-archives the ones that still look open, and posts a
-// detailed report to #violation-alerts.
+// Support-tickets keeper: Tickety (threads mode) tickets disappear from the
+// channel list once they are inactive for longer than their auto-archive
+// duration (7 days). Discord no longer truly archives them on time — clients
+// just HIDE active threads past that window — so unarchiving alone does
+// nothing: the only reliable way to keep an open ticket visible is fresh
+// activity. Once a day this module:
 //
-// "Closed" heuristic: a thread is left archived when it is locked or its
-// name starts with "closed"/"cerrado" — anything else is treated as an open
-// ticket. The report lists both groups so the heuristic can be verified.
+//   1. un-archives any archived-but-open ticket (lazy archiving still happens)
+//   2. posts a small keep-alive message in every open ticket with no activity
+//      for BUMP_AFTER_DAYS, which resets the client's hide timer
+//   3. posts a detailed report to #violation-alerts
+//
+// "Closed" = Tickety locks + archives the thread (verified live), or the
+// name starts with "closed"/"cerrado". Locked tickets are never touched.
 const {
   SUPPORT_TICKETS_CHANNEL_ID,
   VERIFIERS_ALERTS_CHANNEL_ID,
@@ -17,6 +22,13 @@ const logPrefix = "[Tickets]";
 const CLOSED_NAME = /^(closed|cerrado)/i;
 const MAX_ARCHIVE_PAGES = 50; // 100 threads per page, per type
 const MAX_AUTO_ARCHIVE_MINUTES = 10080; // 7 days — Discord's maximum
+// Bump just before the 7-day hide window closes; also rescues already-hidden
+// tickets, since a hidden thread is simply an active one past the window.
+const BUMP_AFTER_DAYS = parseInt(process.env.TICKET_KEEPALIVE_DAYS || "6", 10);
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const KEEPALIVE_TEXT =
+  "🔔 This ticket is still open — keep-alive bump so it stays visible for the team.";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -35,6 +47,19 @@ function msUntilNextRun() {
   );
   if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
   return next.getTime() - now.getTime();
+}
+
+function snowflakeMs(id) {
+  return Number(BigInt(id) >> 22n) + 1420070400000;
+}
+
+function lastActivityMs(thread) {
+  if (thread.lastMessageId) return snowflakeMs(thread.lastMessageId);
+  return thread.createdTimestamp || Date.now();
+}
+
+function isClosed(thread) {
+  return thread.locked || CLOSED_NAME.test(thread.name || "");
 }
 
 // Walks one archived listing (public or private) through pagination. The
@@ -59,9 +84,27 @@ async function fetchAllArchived(channel, type) {
   return [...all.values()];
 }
 
+// Sends the keep-alive, joining the private thread first if membership is
+// required. Throws if both attempts fail.
+async function sendKeepAlive(thread) {
+  try {
+    await thread.send(KEEPALIVE_TEXT);
+  } catch (err) {
+    await thread.join().catch(() => {});
+    await thread.send(KEEPALIVE_TEXT);
+  }
+}
+
 async function runTicketSweep(client) {
   const startedAt = Date.now();
-  const result = { scanned: 0, reopened: [], leftArchived: [], errors: [] };
+  const result = {
+    activeOpen: 0,
+    archivedScanned: 0,
+    closedCount: 0,
+    unarchived: [],
+    bumped: [],
+    errors: [],
+  };
 
   const channel = await client.channels.fetch(SUPPORT_TICKETS_CHANNEL_ID).catch(() => null);
   if (!channel || !channel.threads) {
@@ -71,6 +114,8 @@ async function runTicketSweep(client) {
     return result;
   }
 
+  // 1. Archived threads: un-archive any that still look open. They will be
+  //    hidden again by the client until the bump below gives them activity.
   let archived = [];
   for (const type of ["private", "public"]) {
     try {
@@ -80,19 +125,12 @@ async function runTicketSweep(client) {
       result.errors.push(`Listing ${type} archived threads failed: ${err.message}`);
     }
   }
-  // The two listings never overlap, but a retried page could duplicate.
-  const seen = new Set();
-  archived = archived.filter((t) => !seen.has(t.id) && seen.add(t.id));
-  result.scanned = archived.length;
+  result.archivedScanned = archived.length;
 
+  const candidates = new Map(); // id -> thread, every open ticket
   for (const thread of archived) {
-    const looksClosed = thread.locked || CLOSED_NAME.test(thread.name || "");
-    if (looksClosed) {
-      result.leftArchived.push({
-        id: thread.id,
-        name: thread.name,
-        reason: thread.locked ? "locked" : "name says closed",
-      });
+    if (isClosed(thread)) {
+      result.closedCount++;
       continue;
     }
     try {
@@ -101,12 +139,8 @@ async function runTicketSweep(client) {
         autoArchiveDuration: MAX_AUTO_ARCHIVE_MINUTES,
         reason: "Ticket still open — unarchived by the daily sweep",
       });
-      result.reopened.push({
-        id: thread.id,
-        name: thread.name,
-        createdTimestamp: thread.createdTimestamp,
-        archivedTimestamp: thread.archiveTimestamp,
-      });
+      result.unarchived.push(thread.id);
+      candidates.set(thread.id, thread);
       await sleep(350);
     } catch (err) {
       console.error(`${logPrefix} Could not unarchive ${thread.id} (${thread.name}):`, err.message);
@@ -114,10 +148,41 @@ async function runTicketSweep(client) {
     }
   }
 
+  // 2. Active threads: these include the "hidden" ones — Discord clients hide
+  //    (not archive) threads inactive past their auto-archive duration. The
+  //    gateway syncs ALL private threads into the cache (ManageThreads grants
+  //    access) even when the bot is not a member; the REST active listing
+  //    does NOT include those, so the cache is the source of truth here.
+  for (const thread of channel.threads.cache.values()) {
+    if (thread.archived || isClosed(thread)) continue;
+    candidates.set(thread.id, thread);
+  }
+  result.activeOpen = candidates.size;
+
+  // 3. Keep-alive bump for every open ticket close to (or past) the hide window.
+  const cutoff = Date.now() - BUMP_AFTER_DAYS * DAY_MS;
+  for (const thread of candidates.values()) {
+    const lastActivity = lastActivityMs(thread);
+    if (lastActivity > cutoff) continue;
+    try {
+      await sendKeepAlive(thread);
+      result.bumped.push({
+        id: thread.id,
+        name: thread.name,
+        idleDays: Math.floor((Date.now() - lastActivity) / DAY_MS),
+        lastActivity,
+      });
+      await sleep(350);
+    } catch (err) {
+      console.error(`${logPrefix} Keep-alive failed for ${thread.id} (${thread.name}):`, err.message);
+      result.errors.push(`Keep-alive failed for "${thread.name}": ${err.message}`);
+    }
+  }
+
   console.log(
-    `${logPrefix} Sweep done: ${result.scanned} archived, ` +
-      `${result.reopened.length} reopened, ${result.leftArchived.length} left closed, ` +
-      `${result.errors.length} errors (${Date.now() - startedAt}ms).`
+    `${logPrefix} Sweep done: ${result.activeOpen} open tickets, ` +
+      `${result.bumped.length} bumped, ${result.unarchived.length} unarchived, ` +
+      `${result.closedCount} closed, ${result.errors.length} errors (${Date.now() - startedAt}ms).`
   );
   await postReport(client, result, startedAt);
   return result;
@@ -139,40 +204,33 @@ async function postReport(client, result, startedAt) {
   const hasErrors = result.errors.length > 0;
   const embed = {
     title: "🎫 Daily support-tickets sweep",
-    color: hasErrors ? 0xe74c3c : result.reopened.length > 0 ? 0xf1c40f : 0x2ecc71,
+    color: hasErrors ? 0xe74c3c : result.bumped.length > 0 ? 0xf1c40f : 0x2ecc71,
     description:
-      `Scanned **${result.scanned}** archived thread(s) in <#${SUPPORT_TICKETS_CHANNEL_ID}>.\n` +
-      `Reopened **${result.reopened.length}** still-open ticket(s) · ` +
-      `left **${result.leftArchived.length}** closed one(s) archived.`,
+      `Open tickets in <#${SUPPORT_TICKETS_CHANNEL_ID}>: **${result.activeOpen}** · ` +
+      `closed (locked) archived: **${result.closedCount}**.\n` +
+      `Kept visible with a bump: **${result.bumped.length}** · ` +
+      `un-archived: **${result.unarchived.length}**.`,
     fields: [],
-    footer: { text: `Sweep took ${((Date.now() - startedAt) / 1000).toFixed(1)}s · runs daily at ${TICKET_SWEEP_UTC_TIME} UTC` },
+    footer: {
+      text:
+        `Bump threshold: ${BUMP_AFTER_DAYS}d idle · sweep took ` +
+        `${((Date.now() - startedAt) / 1000).toFixed(1)}s · runs daily at ${TICKET_SWEEP_UTC_TIME} UTC`,
+    },
     timestamp: new Date().toISOString(),
   };
 
-  if (result.reopened.length > 0) {
+  if (result.bumped.length > 0) {
     embed.fields.push({
-      name: "🔓 Reopened (ticket still open)",
+      name: "🔔 Bumped back to visible (still open)",
       value: listLines(
-        result.reopened,
-        (t) =>
-          `• <#${t.id}> — opened <t:${Math.floor(t.createdTimestamp / 1000)}:R>` +
-          (t.archivedTimestamp ? `, was hidden since <t:${Math.floor(t.archivedTimestamp / 1000)}:R>` : "")
+        result.bumped,
+        (t) => `• <#${t.id}> — idle ${t.idleDays}d, last activity <t:${Math.floor(t.lastActivity / 1000)}:R>`
       ).slice(0, 1024),
     });
   } else if (!hasErrors) {
     embed.fields.push({
       name: "✅ All clear",
-      value: "No open tickets were hidden by auto-archive today.",
-    });
-  }
-
-  // Locked threads are Tickety's normal "closed" state — just a count.
-  // Name-matched skips are unusual, so those get listed for review.
-  const nameSkips = result.leftArchived.filter((t) => t.reason !== "locked");
-  if (nameSkips.length > 0) {
-    embed.fields.push({
-      name: "🔒 Left archived by name (not locked — verify these are closed)",
-      value: listLines(nameSkips, (t) => `• ${t.name}`).slice(0, 1024),
+      value: "Every open ticket has recent activity — nothing was hidden or about to hide.",
     });
   }
 
