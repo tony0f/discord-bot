@@ -3,6 +3,7 @@ const { DISCORD_TOKEN } = require("./src/config");
 const db = require("./src/db");
 const disputeMonitor = require("./src/disputeMonitor");
 const watcher = require("./src/watcher");
+const ticketKeeper = require("./src/ticketKeeper");
 const webServer = require("./src/webServer");
 const { handleInteraction, ensureWelcomeMessage, keepWelcomeLast } = require("./src/interactions");
 
@@ -36,6 +37,7 @@ client.on("ready", () => {
   setInterval(() => disputeMonitor.cleanupDisputeCache(client), 12 * 60 * 60 * 1000);
 
   watcher.start(client);
+  ticketKeeper.start(client);
   webServer.start(client);
   ensureWelcomeMessage(client);
 });

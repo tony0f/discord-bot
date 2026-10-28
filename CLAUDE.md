@@ -35,6 +35,7 @@ src/embeds.js            — request card + live board embeds
 src/interactions.js      — slash commands + /request modal handlers
 src/watcher.js           — polling loop: expiry, proposal/settlement detection, live board
 src/disputeMonitor.js    — ER Threads monitor (real-time + startup scan + cache cleanup)
+src/ticketKeeper.js      — daily sweep that un-archives still-open Tickety ticket threads
 ```
 
 ### Proposal request lifecycle
@@ -77,6 +78,10 @@ Postgres via `DATABASE_URL` (Railway plugin). Two tables: `settings` (key/value 
 `/mystats`, `/leaderboard`, `/pr-admin` (admin: Administrator permission, Risk Labs role, or an ID in `ADMIN_USER_IDS`; hidden from non-admins via default member permissions).
 
 **Bot channel button flow**: a read-only channel (`PROPOSAL_BOT_CHANNEL_ID`, src/config.js) hosts a welcome embed with New request / My stats / Leaderboard buttons (`prw:*` custom ids). The welcome is kept as the channel's last message (`keepWelcomeLast` on messageCreate deletes+reposts; `ensureWelcomeMessage` on ready edits copy in place; message id persisted in settings `bot_channel_welcome_id`). New request opens a link modal (`prwl:`) and — since a modal can't chain another modal — ALWAYS continues in the ephemeral picker (`respondWithPicker`), even for single markets. All flow replies are ephemeral; cards still publish to #proposal-requests.
+
+### Support-tickets keeper
+
+Tickety (threads mode) tickets in `SUPPORT_TICKETS_CHANNEL_ID` auto-archive after 7 days of inactivity even while still open. `src/ticketKeeper.js` runs daily at `TICKET_SWEEP_UTC_TIME` (UTC "HH:MM", default 13:00): walks ALL archived threads (private listing needs ManageThreads + `fetchAll: true`; any `fetchArchived` needs ReadMessageHistory on the parent channel), un-archives those still open (closed = `locked` or name starting with "closed"/"cerrado"), resets `autoArchiveDuration` to the 7-day max, and posts a report embed to `VERIFIERS_ALERTS_CHANNEL_ID`. Bot needs View Channel + Manage Threads + Read Message History on the tickets channel.
 
 ## Web dashboard
 

@@ -20,6 +20,13 @@ module.exports = {
   PROPOSAL_BOT_CHANNEL_ID:
     process.env.PROPOSAL_BOT_CHANNEL_ID || "1536450279992721528",
 
+  // Support-tickets keeper: un-archives still-open Tickety ticket threads
+  // daily and reports to #violation-alerts (VERIFIERS_ALERTS_CHANNEL_ID)
+  SUPPORT_TICKETS_CHANNEL_ID:
+    process.env.SUPPORT_TICKETS_CHANNEL_ID || "1557905896494071808",
+  // Daily sweep time in UTC, "HH:MM" (13:00 UTC = 9:00 AM ET)
+  TICKET_SWEEP_UTC_TIME: process.env.TICKET_SWEEP_UTC_TIME || "13:00",
+
   // Admin access: Administrator permission, this role, or an explicit user ID
   RISK_LABS_ROLE_ID: process.env.RISK_LABS_ROLE_ID || "1123485195694256158",
   ADMIN_USER_IDS: (process.env.ADMIN_USER_IDS || "907390293316337724")
