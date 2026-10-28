@@ -166,10 +166,13 @@ async function postReport(client, result, startedAt) {
     });
   }
 
-  if (result.leftArchived.length > 0) {
+  // Locked threads are Tickety's normal "closed" state — just a count.
+  // Name-matched skips are unusual, so those get listed for review.
+  const nameSkips = result.leftArchived.filter((t) => t.reason !== "locked");
+  if (nameSkips.length > 0) {
     embed.fields.push({
-      name: "🔒 Left archived (look closed)",
-      value: listLines(result.leftArchived, (t) => `• ${t.name} (${t.reason})`).slice(0, 1024),
+      name: "🔒 Left archived by name (not locked — verify these are closed)",
+      value: listLines(nameSkips, (t) => `• ${t.name}`).slice(0, 1024),
     });
   }
 
