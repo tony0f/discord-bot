@@ -20,8 +20,21 @@ function unixSeconds(date) {
   return Math.floor(new Date(date).getTime() / 1000);
 }
 
+// A pending request that still carries proposed_at had its in-window proposal
+// disputed: it is riding the dispute/DVM vote to settlement, not expiring.
+const DISPUTED_DISPLAY = {
+  emoji: "⚖️",
+  label: "Proposal disputed — awaiting UMA resolution",
+  color: 0xe67e22,
+};
+
+function displayFor(request) {
+  if (request.status === "pending" && request.proposed_at) return DISPUTED_DISPLAY;
+  return STATUS_DISPLAY[request.status] || STATUS_DISPLAY.pending;
+}
+
 function buildRequestEmbed(request, { creditWindowHours, reports = [] } = {}) {
-  const display = STATUS_DISPLAY[request.status] || STATUS_DISPLAY.pending;
+  const display = displayFor(request);
   const isActive = request.status === "pending" || request.status === "proposed";
   // Community warnings visually take over the card while the request is active
   const color = reports.length > 0 && isActive ? 0xe74c3c : display.color;
@@ -200,11 +213,13 @@ function buildDashboardEmbed(requests, { creditWindowHours, reportsMap = {}, acc
         lines.push(`> ‣ *…and ${reports.length - 3} more (see the card)*`);
       }
     }
-    if (r.status === "pending") {
+    if (r.status === "pending" && !r.proposed_at) {
       const expiresAt = unixSeconds(
         new Date(new Date(r.created_at).getTime() + creditWindowHours * 3600 * 1000),
       );
       lines.push(`> ⏱️ Expires <t:${expiresAt}:R>`);
+    } else if (r.status === "pending") {
+      lines.push(`> ⚖️ Proposal disputed — awaiting UMA resolution`);
     } else if (r.proposed_outcome) {
       const matches = r.proposed_outcome === r.requested_outcome;
       lines.push(

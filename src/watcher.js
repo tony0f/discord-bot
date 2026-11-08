@@ -330,13 +330,63 @@ async function runCycle(client) {
       }
     }
 
+    // 0e. One-time repair: requests #1480–#1484 (Cerco) were proposed inside
+    //     their window, knocked back to pending when the proposals were
+    //     disputed, and then wrongly expired while the DVM vote was still
+    //     running (the old expiry couldn't see the earlier in-window proposal
+    //     — fixed by keeping proposed_at through knock-outs). Revive them so
+    //     the vote's outcome settles them. proposed_at values are the actual
+    //     on-chain ProposePrice block times. Idempotent: only touches
+    //     'expired' rows, and never while another request holds the market.
+    const REVIVALS = [
+      { id: 1480, proposedAt: "2026-11-08T02:30:58Z" },
+      { id: 1481, proposedAt: "2026-11-08T02:03:25Z" },
+      { id: 1482, proposedAt: "2026-11-08T01:52:51Z" },
+      { id: 1483, proposedAt: "2026-11-08T02:32:19Z" },
+      { id: 1484, proposedAt: "2026-11-08T02:32:10Z" },
+    ];
+    for (const fix of REVIVALS) {
+      const revived = await db.query(
+        `UPDATE proposal_requests
+         SET status = 'pending', proposed_at = $2, updated_at = now()
+         WHERE id = $1 AND status = 'expired'
+           AND NOT EXISTS (
+             SELECT 1 FROM proposal_requests other
+             WHERE other.condition_id = proposal_requests.condition_id
+               AND other.id <> proposal_requests.id
+               AND other.status IN ('pending', 'proposed')
+           )
+         RETURNING *`,
+        [fix.id, fix.proposedAt],
+      );
+      const request = revived.rows[0];
+      if (!request) continue;
+      console.log(`${logPrefix} Revived #${request.id}: wrongly expired during a dispute despite an in-window proposal.`);
+      await editRequestMessage(client, request);
+      try {
+        const channel = await client.channels.fetch(PROPOSAL_REQUESTS_CHANNEL_ID);
+        const payload = {
+          content: `⚖️ **Correction:** request **#${request.id}** by <@${request.discord_user_id}> WAS proposed within its credit window, but the proposal was disputed and the request wrongly expired while the UMA vote is still running. Restored — it will settle on the vote's final outcome.`,
+        };
+        if (request.message_id) {
+          payload.reply = { messageReference: request.message_id, failIfNotExists: false };
+        }
+        await channel.send(payload);
+      } catch (err) {
+        console.warn(`${logPrefix} Could not announce revival for #${request.id}:`, err.message);
+      }
+    }
+
     // 1. Expire pending requests whose credit window has passed.
     //    This runs BEFORE market checks, so a request can never be credited
-    //    for a proposal that arrived after its window.
+    //    for a proposal that arrived after its window. Requests with
+    //    proposed_at set already earned an in-window proposal that was later
+    //    disputed — those ride the dispute/vote to settlement, never expire.
     const expired = await db.query(
       `UPDATE proposal_requests
        SET status = 'expired', updated_at = now()
        WHERE status = 'pending'
+         AND proposed_at IS NULL
          AND created_at < now() - ($1 * interval '1 hour')
        RETURNING *`,
       [creditWindowHours],
@@ -420,11 +470,12 @@ async function runCycle(client) {
           await editRequestMessage(client, updated);
         }
       } else if (request.status === "proposed") {
-        // Proposal knocked out (disputed / extended review) — a fresh proposal
-        // is needed. Revert; the window keeps counting from created_at.
+        // Proposal knocked out (disputed / extended review). proposed_at is
+        // KEPT: the request earned an in-window proposal, so it must survive
+        // the dispute/DVM vote and be judged at final settlement — the expiry
+        // only reaps requests that never saw a proposal.
         const updated = await pr.updateRequestStatus(request.id, {
           status: "pending",
-          proposed_at: null,
           proposed_outcome: null,
           propose_tx: null,
           proposer_address: null,

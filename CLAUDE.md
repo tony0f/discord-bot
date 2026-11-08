@@ -49,7 +49,7 @@ src/ticketKeeper.js      — daily sweep that un-archives still-open Tickety tic
 
 Validation gates (src/proposalRequests.js `createRequest`): user not already qualified, active/daily limits, market resolves via Gamma, not closed/resolved, **no existing on-chain proposal**, outcome matches the market's outcomes, no active request for the same `conditionId` (first-come-first-served, enforced by a partial unique index).
 
-Key anti-abuse mechanic: the **credit window** (default 24h, `/pr-admin set_credit_window`). A request only counts if a proposal lands within the window; too-early (P4) or junk requests simply expire with no credit. Early claims (market end time still in the future) are allowed but flagged `early_claim`.
+Key anti-abuse mechanic: the **credit window** (default 24h, `/pr-admin set_credit_window`). A request only counts if a proposal lands within the window; too-early (P4) or junk requests simply expire with no credit. Early claims (market end time still in the future) are allowed but flagged `early_claim`. **Disputes don't expire an earned shot**: once a proposal lands in-window, `proposed_at` survives the knock-out back to `pending` (shown as "⚖️ disputed — awaiting UMA resolution") and the expiry skips rows with `proposed_at` set, so the request rides the dispute/DVM vote to settlement and is judged on the final outcome.
 
 ### Market data sources
 
