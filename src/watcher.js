@@ -5,6 +5,7 @@ const pr = require("./proposalRequests");
 const { buildRequestEmbed, buildDashboardEmbed } = require("./embeds");
 const { PROPOSAL_REQUESTS_CHANNEL_ID } = require("./config");
 const onchain = require("./onchain");
+const wl = require("./whitelist");
 
 let isCycleRunning = false;
 const logPrefix = "[PR Watcher]";
@@ -487,7 +488,11 @@ async function runCycle(client) {
       await sleep(300); // be gentle with the API
     }
 
-    // 3. Refresh the live board.
+    // 3. Whitelist chores (daily on-chain sync, monthly wallet reminder —
+    //    each self-dedupes via settings, so per-cycle calls are cheap).
+    await wl.runScheduledTasks(client);
+
+    // 4. Refresh the live board.
     await refreshDashboard(client);
   } catch (err) {
     console.error(`${logPrefix} Cycle error:`, err);

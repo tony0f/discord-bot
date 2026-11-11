@@ -32,8 +32,12 @@ const WELCOME_LIST_ID = "prw:list";      // welcome button: active requests boar
 const WELCOME_REPORT_ID = "prw:report";  // welcome button: add a community warning
 const WELCOME_STATS_ID = "prw:stats";    // welcome button: my stats
 const WELCOME_LB_ID = "prw:lb";          // welcome button: leaderboard
+const WELCOME_WALLET_ID = "prw:wallet";  // welcome button: add/update wallet
 const WELCOME_LINK_MODAL_PREFIX = "prwl:"; // welcome flow: paste-the-link modal
 const WELCOME_REPORT_MODAL_PREFIX = "prwr:"; // welcome flow: report modal
+const WALLET_MODAL_ID = "prww:modal";    // wallet modal (stateless)
+
+const EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
 const COMBO_MODAL_PREFIX = "prq2:";      // evidence modal after line selection
 const COMBO_SELECT_PREFIX = "prqsel:";   // event flow: line→outcome select menus
@@ -172,6 +176,7 @@ function buildWelcomePayload() {
         "• One request per market — first come, first served.",
         "• Don't request too early (P4): if the event hasn't resolved yet, wait. Premature requests can be denied credit after review.",
         "• See something off? Flag it with **🚩 Report** below (you'll need the request # from its card).",
+        "• **💳 My wallet** saves the EVM wallet we'll use if your record qualifies for the proposer whitelist (also `/mywallet`).",
       ].join("\n"),
     )
     .setFooter({ text: "Interactions here are private (only you see them) — the channel stays clean." });
@@ -183,8 +188,11 @@ function buildWelcomePayload() {
     new ButtonBuilder().setCustomId(WELCOME_STATS_ID).setLabel("My stats").setEmoji("📊").setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(WELCOME_LB_ID).setLabel("Leaderboard").setEmoji("🏆").setStyle(ButtonStyle.Secondary),
   );
+  const buttons2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(WELCOME_WALLET_ID).setLabel("My wallet").setEmoji("💳").setStyle(ButtonStyle.Secondary),
+  );
 
-  return { embeds: [embed], components: [buttons] };
+  return { embeds: [embed], components: [buttons, buttons2] };
 }
 
 async function ensureWelcomeMessage(client) {
@@ -232,6 +240,61 @@ async function keepWelcomeLast(client, message) {
   } finally {
     repostingWelcome = false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Wallet self-service: 💳 button (modal) and /mywallet. Stores only the
+// wallet in user_flags — admin fields are untouched.
+// ---------------------------------------------------------------------------
+function buildWalletModal() {
+  return new ModalBuilder()
+    .setCustomId(WALLET_MODAL_ID)
+    .setTitle("My payout wallet")
+    .addLabelComponents(
+      new LabelBuilder()
+        .setLabel("EVM wallet address")
+        .setDescription("Used if your record qualifies for the proposer whitelist")
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId("wallet")
+            .setPlaceholder("0x…")
+            .setStyle(TextInputStyle.Short)
+            .setMinLength(42)
+            .setMaxLength(42)
+            .setRequired(true),
+        ),
+    );
+}
+
+async function saveWalletReply(interaction, rawWallet) {
+  const wallet = String(rawWallet || "").trim();
+  if (!EVM_ADDRESS_RE.test(wallet)) {
+    return interaction.reply({
+      content: "❌ That doesn't look like a valid EVM address — it must be `0x` followed by 40 hex characters.",
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+  const previous = await pr.getUserFlags(interaction.user.id);
+  await pr.setUserWallet(interaction.user.id, interaction.user.username, wallet);
+  return interaction.reply({
+    content:
+      previous?.wallet && previous.wallet.toLowerCase() !== wallet.toLowerCase()
+        ? `✅ Wallet updated: \`${wallet}\` (replaced \`${previous.wallet}\`).`
+        : `✅ Wallet saved: \`${wallet}\`. You can change it anytime with the 💳 button or \`/mywallet\`.`,
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+async function handleMyWallet(interaction) {
+  const address = interaction.options.getString("address");
+  if (address) return saveWalletReply(interaction, address);
+  const flags = await pr.getUserFlags(interaction.user.id);
+  return interaction.reply({
+    content: flags?.wallet
+      ? `💳 Your saved wallet: \`${flags.wallet}\`\nChange it with \`/mywallet address:0x…\` or the 💳 button in <#${PROPOSAL_BOT_CHANNEL_ID}>.`
+      : `💳 You haven't saved a wallet yet. Add it with \`/mywallet address:0x…\` or the 💳 button in <#${PROPOSAL_BOT_CHANNEL_ID}>.`,
+    flags: MessageFlags.Ephemeral,
+  });
 }
 
 // Active/daily caps shared by every entry point. Returns an error string or null.
@@ -1045,6 +1108,10 @@ async function handleInteraction(interaction) {
         if (!db.isEnabled()) return dbDisabledReply(interaction);
         return handleReport(interaction);
       }
+      if (commandName === "mywallet") {
+        if (!db.isEnabled()) return dbDisabledReply(interaction);
+        return handleMyWallet(interaction);
+      }
       if (commandName === "pr-admin") {
         if (!db.isEnabled()) return dbDisabledReply(interaction);
         return handleAdmin(interaction);
@@ -1089,6 +1156,10 @@ async function handleInteraction(interaction) {
         if (!db.isEnabled()) return dbDisabledReply(interaction);
         return handleLeaderboard(interaction, true);
       }
+      if (interaction.customId === WELCOME_WALLET_ID) {
+        if (!db.isEnabled()) return dbDisabledReply(interaction);
+        return interaction.showModal(buildWalletModal());
+      }
       return;
     }
 
@@ -1102,6 +1173,9 @@ async function handleInteraction(interaction) {
       }
       if (interaction.customId.startsWith(COMBO_MODAL_PREFIX)) {
         return handleComboModalSubmit(interaction);
+      }
+      if (interaction.customId === WALLET_MODAL_ID) {
+        return saveWalletReply(interaction, interaction.fields.getTextInputValue("wallet"));
       }
     }
   } catch (err) {

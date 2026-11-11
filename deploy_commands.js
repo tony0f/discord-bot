@@ -38,6 +38,18 @@ const leaderboardCommand = new SlashCommandBuilder()
   .setName("leaderboard")
   .setDescription("Proposal-requests leaderboard (last 6 months).");
 
+const myWalletCommand = new SlashCommandBuilder()
+  .setName("mywallet")
+  .setDescription("View or save the EVM wallet tied to your proposal-request record.")
+  .addStringOption((opt) =>
+    opt
+      .setName("address")
+      .setDescription("Your EVM wallet (0x…). Leave empty to view the saved one.")
+      .setMinLength(42)
+      .setMaxLength(42)
+      .setRequired(false),
+  );
+
 const requestsListCommand = new SlashCommandBuilder()
   .setName("requests")
   .setDescription("List all active proposal requests (pending and proposed).");
@@ -218,6 +230,7 @@ const adminCommand = new SlashCommandBuilder()
 const commands = [
   requestCommand.toJSON(),
   myStatsCommand.toJSON(),
+  myWalletCommand.toJSON(),
   leaderboardCommand.toJSON(),
   requestsListCommand.toJSON(),
   reportCommand.toJSON(),

@@ -31,6 +31,8 @@ export const api = {
     request(`/api/requests/${id}/warnings`, { method: "POST", body: { reason } }),
   clearWarnings: (id) => request(`/api/requests/${id}/warnings`, { method: "DELETE" }),
   leaderboard: () => request("/api/leaderboard"),
+  whitelistBatch: () => request("/api/whitelist/batch"),
+  whitelistSync: () => request("/api/whitelist/sync", { method: "POST" }),
   updateUserFlags: (userId, updates) =>
     request(`/api/users/${userId}/flags`, { method: "PUT", body: updates }),
   settings: () => request("/api/settings"),

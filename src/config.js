@@ -48,4 +48,10 @@ module.exports = {
   // Whitelist qualification thresholds (mirror of the official rules)
   QUALIFY_MIN_SETTLED: 5,
   QUALIFY_MIN_ACCURACY: 0.95,
+
+  // UMA proposer whitelist contract on Polygon (AddressWhitelist) — the
+  // dashboard/watcher read getWhitelist() from it to confirm whitelistings
+  WHITELIST_CONTRACT_ADDRESS:
+    process.env.WHITELIST_CONTRACT_ADDRESS ||
+    "0x9F35885CE8f67a942D7B2f4Fbf937987DA08c463",
 };

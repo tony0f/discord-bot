@@ -237,6 +237,27 @@ async function getLeaderboard(limit = 15) {
   });
 }
 
+// Self-service wallet storage (user_flags). Only touches wallet/username so
+// admin-managed fields (contacted, whitelisted, note) are never clobbered.
+async function setUserWallet(userId, username, wallet) {
+  const res = await db.query(
+    `INSERT INTO user_flags (discord_user_id, username, wallet, updated_at)
+     VALUES ($1, $2, $3, now())
+     ON CONFLICT (discord_user_id) DO UPDATE SET
+       wallet = EXCLUDED.wallet,
+       username = COALESCE(EXCLUDED.username, user_flags.username),
+       updated_at = now()
+     RETURNING *`,
+    [userId, username || null, wallet],
+  );
+  return res.rows[0];
+}
+
+async function getUserFlags(userId) {
+  const res = await db.query(`SELECT * FROM user_flags WHERE discord_user_id = $1`, [userId]);
+  return res.rows[0] || null;
+}
+
 async function listActiveRequests() {
   const res = await db.query(
     `SELECT * FROM proposal_requests
@@ -379,6 +400,8 @@ module.exports = {
   setRequestMessage,
   getUserStats,
   getLeaderboard,
+  setUserWallet,
+  getUserFlags,
   listActiveRequests,
   getRequestById,
   updateRequestStatus,

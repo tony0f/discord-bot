@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Trophy, Phone, ShieldCheck, Pencil, Search } from "lucide-react";
+import { Trophy, Phone, ShieldCheck, Pencil, Search, Copy, RefreshCw, AlertTriangle } from "lucide-react";
 import { api } from "../api.js";
 import { Card, EmptyState, Button, Modal } from "../ui.jsx";
 
@@ -24,6 +24,84 @@ function FlagChip({ active, busy, onClick, icon: Icon, label, activeClass }) {
   );
 }
 
+function WhitelistBatch({ flash, onSynced }) {
+  const [batch, setBatch] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+
+  const load = () => api.whitelistBatch().then(setBatch).catch(() => setBatch(null));
+  useEffect(() => {
+    load();
+  }, []);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(batch.copyText);
+      flash(`Copied ${batch.ready.length} row(s) — paste straight into the sheet.`);
+    } catch {
+      flash("Could not access the clipboard — select the text manually.");
+    }
+  };
+
+  const sync = async () => {
+    setSyncing(true);
+    try {
+      const d = await api.whitelistSync();
+      flash(
+        d.flipped.length > 0
+          ? `On-chain sync: ${d.flipped.length} user(s) newly whitelisted (${d.onchainSize} addresses on-chain).`
+          : `On-chain sync: no changes (${d.onchainSize} addresses on-chain).`,
+      );
+      await load();
+      onSynced();
+    } catch (e) {
+      flash(`Sync failed: ${e.message}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  if (!batch || (batch.ready.length === 0 && batch.missingWallet.length === 0)) return null;
+
+  return (
+    <Card className="space-y-4 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold">Monthly whitelist batch</h2>
+          <p className="mt-0.5 text-xs text-ink-3">
+            Qualified, not yet whitelisted · cut on the 3rd
+            {batch.lastSync && ` · last on-chain sync ${new Date(batch.lastSync).toLocaleString()}`}
+          </p>
+        </div>
+        <Button variant="subtle" loading={syncing} onClick={sync}>
+          <RefreshCw size={13} aria-hidden /> Sync on-chain
+        </Button>
+      </div>
+
+      {batch.ready.length > 0 && (
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <p className="text-xs font-medium text-ink-2">Ready to add ({batch.ready.length}) — sheet format</p>
+            <Button variant="subtle" onClick={copy}>
+              <Copy size={13} aria-hidden /> Copy
+            </Button>
+          </div>
+          <pre className="max-h-48 overflow-auto rounded-lg border border-edge bg-surface-2 p-3 font-mono text-xs leading-relaxed">
+            {batch.copyText}
+          </pre>
+        </div>
+      )}
+
+      {batch.missingWallet.length > 0 && (
+        <p className="flex flex-wrap items-center gap-1.5 text-xs text-s-pending">
+          <AlertTriangle size={13} aria-hidden />
+          Missing wallet: {batch.missingWallet.map((r) => r.username).join(", ")} — the bot pings them on the
+          1st; they can save it with /mywallet or the 💳 button.
+        </p>
+      )}
+    </Card>
+  );
+}
+
 export default function Leaderboard() {
   const [rows, setRows] = useState(null);
   const [search, setSearch] = useState("");
@@ -34,8 +112,10 @@ export default function Leaderboard() {
   const [note, setNote] = useState("");
   const [toast, setToast] = useState("");
 
-  useEffect(() => {
+  const loadRows = () =>
     api.leaderboard().then((d) => setRows(d.leaderboard)).catch((e) => setError(e.message));
+  useEffect(() => {
+    loadRows();
   }, []);
 
   const flash = (msg) => {
@@ -101,6 +181,8 @@ export default function Leaderboard() {
           />
         </div>
       </header>
+
+      <WhitelistBatch flash={flash} onSynced={loadRows} />
 
       <Card className="overflow-x-auto p-0">
         {error && !rows ? (

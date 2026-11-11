@@ -5,6 +5,7 @@ const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 const db = require("./db");
 const pr = require("./proposalRequests");
+const wl = require("./whitelist");
 const { registerDiscordProxy } = require("./discordProxy");
 
 
@@ -346,6 +347,27 @@ function start(client) {
         ],
       );
       res.json({ flags: result.rows[0] });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Monthly whitelist batch: qualified users not yet whitelisted, split into
+  // ready (wallet on file, sheet-ready copyText) and missing-wallet.
+  app.get("/api/whitelist/batch", requireAuth, async (req, res, next) => {
+    try {
+      res.json(await wl.getWhitelistBatch());
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // On-demand on-chain sync: marks stored wallets found in the AddressWhitelist
+  // contract as whitelisted (never unsets).
+  app.post("/api/whitelist/sync", requireAuth, async (req, res, next) => {
+    try {
+      const result = await wl.syncWhitelistFlags();
+      res.json(result);
     } catch (err) {
       next(err);
     }
