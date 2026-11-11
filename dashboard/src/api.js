@@ -33,6 +33,7 @@ export const api = {
   leaderboard: () => request("/api/leaderboard"),
   whitelistBatch: () => request("/api/whitelist/batch"),
   whitelistSync: () => request("/api/whitelist/sync", { method: "POST" }),
+  whitelistRemind: () => request("/api/whitelist/remind", { method: "POST" }),
   updateUserFlags: (userId, updates) =>
     request(`/api/users/${userId}/flags`, { method: "PUT", body: updates }),
   settings: () => request("/api/settings"),

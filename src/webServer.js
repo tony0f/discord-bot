@@ -373,6 +373,16 @@ function start(client) {
     }
   });
 
+  // Manually send the wallet-collection reminder to #proposal-requests (the
+  // same message the bot posts automatically on the 1st).
+  app.post("/api/whitelist/remind", requireAuth, async (req, res, next) => {
+    try {
+      res.json(await wl.sendWalletReminder(client));
+    } catch (err) {
+      next(err);
+    }
+  });
+
   app.get("/api/settings", requireAuth, async (req, res, next) => {
     try {
       res.json({ settings: await db.getSettings() });

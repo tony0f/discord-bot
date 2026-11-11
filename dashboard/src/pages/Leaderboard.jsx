@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Trophy, Phone, ShieldCheck, Pencil, Search, Copy, RefreshCw, AlertTriangle } from "lucide-react";
+import { Trophy, Phone, ShieldCheck, Pencil, Search, Copy, RefreshCw, AlertTriangle, Send } from "lucide-react";
 import { api } from "../api.js";
 import { Card, EmptyState, Button, Modal } from "../ui.jsx";
 
@@ -27,6 +27,7 @@ function FlagChip({ active, busy, onClick, icon: Icon, label, activeClass }) {
 function WhitelistBatch({ flash, onSynced }) {
   const [batch, setBatch] = useState(null);
   const [syncing, setSyncing] = useState(false);
+  const [reminding, setReminding] = useState(false);
 
   const load = () => api.whitelistBatch().then(setBatch).catch(() => setBatch(null));
   useEffect(() => {
@@ -60,6 +61,26 @@ function WhitelistBatch({ flash, onSynced }) {
     }
   };
 
+  const remind = async () => {
+    const pending = batch.ready.length + batch.missingWallet.length;
+    if (!window.confirm(`Post the wallet reminder in #proposal-requests now? It pings ${pending} user(s).`)) {
+      return;
+    }
+    setReminding(true);
+    try {
+      const d = await api.whitelistRemind();
+      flash(
+        d.sent
+          ? `Reminder posted — pinged ${d.pendingCount} user(s) (${d.missingCount} missing a wallet).`
+          : "Nothing to send: no qualified users pending whitelisting.",
+      );
+    } catch (e) {
+      flash(`Reminder failed: ${e.message}`);
+    } finally {
+      setReminding(false);
+    }
+  };
+
   if (!batch || (batch.ready.length === 0 && batch.missingWallet.length === 0)) return null;
 
   return (
@@ -72,9 +93,14 @@ function WhitelistBatch({ flash, onSynced }) {
             {batch.lastSync && ` · last on-chain sync ${new Date(batch.lastSync).toLocaleString()}`}
           </p>
         </div>
-        <Button variant="subtle" loading={syncing} onClick={sync}>
-          <RefreshCw size={13} aria-hidden /> Sync on-chain
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="subtle" loading={reminding} onClick={remind}>
+            <Send size={13} aria-hidden /> Send Discord reminder
+          </Button>
+          <Button variant="subtle" loading={syncing} onClick={sync}>
+            <RefreshCw size={13} aria-hidden /> Sync on-chain
+          </Button>
+        </div>
       </div>
 
       {batch.ready.length > 0 && (
@@ -94,8 +120,8 @@ function WhitelistBatch({ flash, onSynced }) {
       {batch.missingWallet.length > 0 && (
         <p className="flex flex-wrap items-center gap-1.5 text-xs text-s-pending">
           <AlertTriangle size={13} aria-hidden />
-          Missing wallet: {batch.missingWallet.map((r) => r.username).join(", ")} — the bot pings them on the
-          1st; they can save it with /mywallet or the 💳 button.
+          Missing wallet: {batch.missingWallet.map((r) => r.username).join(", ")} — pinged automatically on
+          the 1st, or right now with "Send Discord reminder"; they save it with /mywallet or the 💳 button.
         </p>
       )}
     </Card>

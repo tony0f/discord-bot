@@ -154,23 +154,17 @@ async function sendChunked(channel, lines) {
   if (buffer) await channel.send({ content: buffer, allowedMentions: { parse: ["users"] } });
 }
 
-// On the 1st of each month: ping qualified, not-yet-whitelisted users so the
-// missing wallets arrive before the cut on the 3rd.
-async function maybeMonthlyReminder(client, settings) {
-  const now = new Date();
-  if (now.getUTCDate() !== 1) return;
-  const monthKey = now.toISOString().slice(0, 7); // YYYY-MM
-  if (settings.whitelist_reminder_month === monthKey) return;
-  await db.setSetting("whitelist_reminder_month", monthKey); // set first — never double-ping
-
+// Pings qualified, not-yet-whitelisted users in #proposal-requests so the
+// missing wallets arrive before the cut on the 3rd. Used by the automatic
+// monthly reminder AND the dashboard's "Send Discord reminder" button.
+async function sendWalletReminder(client) {
   const batch = await getWhitelistBatch();
   const pending = [...batch.ready, ...batch.missingWallet];
   if (pending.length === 0) {
-    console.log(`${logPrefix} Monthly reminder: no qualified users pending whitelisting.`);
-    return;
+    return { sent: false, pendingCount: 0, readyCount: 0, missingCount: 0 };
   }
   const channel = await client.channels.fetch(PROPOSAL_REQUESTS_CHANNEL_ID).catch(() => null);
-  if (!channel) return;
+  if (!channel) throw new Error("#proposal-requests channel not accessible");
 
   const lines = [
     `📋 **Monthly proposer-whitelist review** — the cut is on the **3rd**.`,
@@ -188,7 +182,26 @@ async function maybeMonthlyReminder(client, settings) {
     `Missing yours? Save it with **/mywallet** or the 💳 **My wallet** button in <#${PROPOSAL_BOT_CHANNEL_ID}> before the 3rd to be included in this month's batch.`,
   );
   await sendChunked(channel, lines);
-  console.log(`${logPrefix} Monthly reminder sent (${pending.length} pending user(s)).`);
+  console.log(`${logPrefix} Wallet reminder sent (${pending.length} pending user(s)).`);
+  return {
+    sent: true,
+    pendingCount: pending.length,
+    readyCount: batch.ready.length,
+    missingCount: batch.missingWallet.length,
+  };
+}
+
+// On the 1st of each month: send the reminder automatically (once per month).
+async function maybeMonthlyReminder(client, settings) {
+  const now = new Date();
+  if (now.getUTCDate() !== 1) return;
+  const monthKey = now.toISOString().slice(0, 7); // YYYY-MM
+  if (settings.whitelist_reminder_month === monthKey) return;
+  await db.setSetting("whitelist_reminder_month", monthKey); // set first — never double-ping
+  const result = await sendWalletReminder(client);
+  if (!result.sent) {
+    console.log(`${logPrefix} Monthly reminder: no qualified users pending whitelisting.`);
+  }
 }
 
 // One-time seed of the manually-collected wallets. Usernames are resolved to
@@ -278,5 +291,6 @@ module.exports = {
   syncWhitelistFlags,
   getQualifiedUsers,
   getWhitelistBatch,
+  sendWalletReminder,
   runScheduledTasks,
 };
